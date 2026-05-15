@@ -1,0 +1,2307 @@
+<!DOCTYPE html>
+<!--
+  黏性现象仿真模拟器 — 大学生物理实验竞赛
+  本地打开方式：直接双击用 Chrome/Edge 打开即可。
+  控制台中的 file:// 安全警告可忽略，不影响功能。
+  也可通过 http-server 或 VS Code Live Server 启动本地服务器。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>黏性现象仿真模拟器</title>
+<!-- ECharts: CDN 优先，失败回退本地文件 -->
+<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"
+  onerror="var s=document.createElement('script');s.src='echarts.min.js';document.head.appendChild(s);">
+</script>
+<!-- SheetJS: CDN 加载（导出 Excel 用），失败则 Excel 按钮自动隐藏 -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
+  onerror="console.warn('[Sim] SheetJS CDN failed, Excel export disabled');">
+</script>
+<style>
+:root {
+  --bg:#0a0f1e; --bg-card:rgba(16,24,48,0.85);
+  --accent:#00d4ff; --accent2:#7b61ff; --accent3:#ff9800;
+  --text:#dde4f0; --text2:#8899bb;
+  --border:rgba(0,212,255,0.18); --danger:#ff5252; --success:#00e676;
+  --sidebar-w:230px; --sidebar-collapsed-w:48px; --topbar-h:50px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+#topbar{height:var(--topbar-h);background:rgba(12,20,40,0.95);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;z-index:10;flex-shrink:0;}
+#topbar .logo{font-size:1.15rem;font-weight:700;color:var(--accent);letter-spacing:1px;margin-right:30px;white-space:nowrap;}
+#topbar .logo span{color:var(--text);font-weight:400;margin-left:4px;}
+#experiment-tabs{display:flex;gap:4px;height:100%;align-items:stretch;}
+#experiment-tabs button{background:transparent;border:none;color:var(--text2);font-size:0.92rem;padding:0 22px;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.25s;font-family:inherit;white-space:nowrap;}
+#experiment-tabs button:hover{color:var(--text);}
+#experiment-tabs button.active{color:var(--accent);border-bottom-color:var(--accent);}
+#body-wrap{display:flex;flex:1;overflow:hidden;}
+#sidebar{width:var(--sidebar-w);background:rgba(14,22,45,0.9);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:width 0.3s ease;flex-shrink:0;overflow:hidden;}
+#sidebar.collapsed{width:var(--sidebar-collapsed-w);}
+#sidebar-toggle{background:transparent;border:none;color:var(--text2);font-size:1.3rem;cursor:pointer;padding:12px 14px;align-self:flex-end;transition:color 0.2s;}
+#sidebar-toggle:hover{color:var(--accent);}
+#sidebar-menu{list-style:none;padding:0 10px;flex:1;}
+#sidebar-menu li{padding:12px 14px;margin:4px 0;border-radius:8px;cursor:pointer;color:var(--text2);transition:all 0.2s;display:flex;align-items:center;gap:12px;font-size:0.93rem;white-space:nowrap;}
+#sidebar-menu li:hover{background:rgba(0,212,255,0.08);color:var(--text);}
+#sidebar-menu li.active{background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.25);}
+#sidebar-menu li .icon{font-size:1.2rem;width:22px;text-align:center;flex-shrink:0;}
+#sidebar.collapsed #sidebar-menu li .label{display:none;}
+#sidebar.collapsed #sidebar-menu li{justify-content:center;padding:12px 8px;}
+#sidebar.collapsed #sidebar-menu li .icon{margin:0;}
+#main{flex:1;overflow-y:auto;overflow-x:hidden;padding:20px;display:flex;flex-direction:column;gap:16px;}
+#main::-webkit-scrollbar{width:6px;}
+#main::-webkit-scrollbar-track{background:transparent;}
+#main::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;}
+.chart-box{width:100%;min-width:300px;height:380px;flex-shrink:0;}
+.chart-sm{width:100%;min-width:200px;height:280px;min-height:280px;}
+#canvas-container{position:relative;flex-shrink:0;}
+#particle-canvas{width:100%;height:180px;border-radius:8px;display:block;background:rgba(6,10,25,0.8);}
+.anim-controls{display:flex;gap:10px;margin:4px 0;}
+.anim-controls button{padding:8px 20px;border:1px solid var(--border);border-radius:6px;background:rgba(0,212,255,0.08);color:var(--text);cursor:pointer;font-size:0.9rem;font-family:inherit;transition:all 0.2s;}
+.anim-controls button:hover{background:rgba(0,212,255,0.18);border-color:var(--accent);}
+.anim-controls button.playing{background:rgba(0,230,118,0.15);border-color:var(--success);color:var(--success);}
+.param-group{display:flex;flex-direction:column;gap:10px;}
+.param-row{display:flex;align-items:center;gap:10px;}
+.param-row label{width:115px;text-align:right;font-size:0.84rem;color:var(--text2);flex-shrink:0;}
+.param-row.comp-label{width:auto;text-align:left;font-size:0.82rem;color:var(--text2);}
+.param-row input[type="range"]{flex:1;-webkit-appearance:none;height:5px;border-radius:3px;background:linear-gradient(90deg,rgba(0,212,255,0.2),rgba(0,212,255,0.6));outline:none;min-width:60px;}
+.param-row input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 0 10px rgba(0,212,255,0.5);}
+.param-row input[type="number"]{width:78px;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:4px 6px;font-size:0.84rem;font-family:inherit;text-align:center;}
+.param-row input[type="number"]:focus{border-color:var(--accent);outline:none;}
+.param-row .unit{width:44px;font-size:0.78rem;color:var(--text2);flex-shrink:0;}
+.data-grid{display:flex;gap:16px;flex-wrap:wrap;}
+.data-item{background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:8px;padding:10px 14px;min-width:130px;flex:1;}
+.data-item .data-label{font-size:0.76rem;color:var(--text2);margin-bottom:4px;}
+.data-item .data-value{font-size:1.15rem;font-weight:600;color:var(--accent);font-family:'Consolas','Monaco',monospace;}
+.data-table{width:100%;border-collapse:collapse;font-size:0.85rem;}
+.data-table th{color:var(--accent);text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);font-weight:500;font-size:0.8rem;}
+.data-table td{padding:6px 10px;color:var(--text);border-bottom:1px solid rgba(255,255,255,0.05);font-family:'Consolas','Monaco',monospace;font-size:0.85rem;}
+.data-table td.metric{font-family:inherit;color:var(--text2);font-size:0.82rem;}
+.data-table td.err{color:var(--success);}
+.btn-export{display:flex;gap:10px;flex-shrink:0;}
+.btn-export button{padding:9px 18px;border:1px solid var(--accent2);border-radius:6px;background:rgba(123,97,255,0.1);color:var(--text);cursor:pointer;font-size:0.88rem;font-family:inherit;transition:all 0.2s;}
+.btn-export button:hover{background:rgba(123,97,255,0.25);border-color:var(--accent);}
+.btn-reset-params{padding:3px 10px;border:1px solid rgba(255,255,255,0.15);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer;font-size:0.75rem;font-family:inherit;transition:all 0.2s;}
+.btn-reset-params:hover{background:rgba(255,255,255,0.08);color:var(--text);border-color:var(--accent);}
+.btn-copy-tbl{padding:2px 8px;border:1px solid rgba(255,255,255,0.12);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer;font-size:0.72rem;font-family:inherit;transition:all 0.2s;}
+.btn-copy-tbl:hover{background:rgba(0,212,255,0.1);color:var(--accent);border-color:var(--accent);}
+.btn-preset{padding:2px 8px;border:1px solid rgba(255,255,255,0.12);border-radius:10px;background:transparent;color:var(--text2);cursor:pointer;font-size:0.7rem;font-family:inherit;transition:all 0.2s;}
+.btn-preset:hover{background:rgba(0,212,255,0.12);color:var(--accent);border-color:var(--accent);}
+.fluid-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-bottom:8px;max-height:140px;overflow-y:auto;padding-right:2px;}
+.fluid-grid::-webkit-scrollbar{width:3px;}
+.fluid-grid::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}
+.fluid-btn{padding:2px 4px;border:1px solid rgba(255,255,255,0.08);border-radius:4px;background:rgba(0,212,255,0.03);color:var(--text2);cursor:pointer;font-size:0.65rem;font-family:inherit;transition:all 0.15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.fluid-btn:hover{background:rgba(0,212,255,0.15);color:var(--accent);border-color:rgba(0,212,255,0.4);}
+.fluid-btn:active{background:rgba(0,212,255,0.3);color:#fff;transition:none;}
+.fluid-toggle{background:transparent;border:none;color:var(--text2);cursor:pointer;font-size:0.72rem;font-family:inherit;padding:0;margin-bottom:4px;text-align:left;}
+.fluid-toggle:hover{color:var(--accent);}
+.fluid-wrap{display:none;}
+.fluid-wrap.show{display:block;}
+.principle-card{transition:transform 0.2s,box-shadow 0.2s;}
+.principle-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.3),0 0 16px rgba(0,212,255,0.08);}
+.principle-card h2{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px;font-size:1.3rem;display:flex;align-items:center;gap:10px;}
+.principle-card h2 .exp-icon{-webkit-text-fill-color:initial;}
+.principle-card .subtitle{color:var(--text2);font-size:0.82rem;margin-bottom:14px;font-style:italic;}
+.principle-card .formula{background:rgba(0,0,0,0.4);padding:18px 22px;border-radius:12px;font-family:'Consolas','Monaco',monospace;font-size:1.05rem;color:var(--accent2);margin:14px 0;text-align:center;border:1px solid rgba(123,97,255,0.25);letter-spacing:0.5px;}
+.principle-card .formula .hl{color:var(--accent);font-weight:700;}
+.principle-card p{color:#b0bec5;line-height:1.7;font-size:0.9rem;}
+.principle-card .var-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;margin:12px 0;}
+.principle-card .var-item{background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.12);border-radius:6px;padding:6px 10px;font-size:0.8rem;color:var(--text2);display:flex;align-items:baseline;gap:6px;}
+.principle-card .var-item b{color:var(--accent);font-family:'Consolas',monospace;min-width:40px;}
+.principle-card .insight{background:rgba(0,212,255,0.06);border-left:3px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin-top:14px;font-size:0.86rem;color:#c8d6e0;line-height:1.6;}
+.principle-card .steps-wrap{margin-top:14px;}
+.principle-card .steps-toggle{background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:var(--text2);cursor:pointer;padding:6px 14px;font-size:0.82rem;font-family:inherit;transition:all 0.2s;}
+.principle-card .steps-toggle:hover{color:var(--accent);border-color:var(--accent);}
+.principle-card .steps-content{display:none;margin-top:8px;background:rgba(0,0,0,0.2);border-radius:8px;padding:12px 16px;font-size:0.84rem;color:var(--text2);line-height:1.8;}
+.principle-card .steps-content.show{display:block;}
+.principle-diagram{display:flex;align-items:center;justify-content:center;height:100px;margin:10px 0;border-radius:8px;background:rgba(0,0,0,0.2);position:relative;overflow:hidden;}
+.diag-newton{position:relative;width:90%;height:80px;}
+.diag-newton .plate{position:absolute;left:0;right:0;height:3px;border-radius:2px;}
+.diag-newton .plate.top{top:0;background:var(--accent);box-shadow:0 0 8px rgba(0,212,255,0.5);}
+.diag-newton .plate.bottom{bottom:0;background:#fff;}
+.diag-newton .flow-line{position:absolute;left:20px;height:1px;background:rgba(0,212,255,0.3);}
+.diag-poiseuille{position:relative;width:90%;height:80px;display:flex;align-items:center;justify-content:center;}
+.diag-poiseuille .pipe{width:40px;height:100%;border:2px solid rgba(255,255,255,0.4);border-radius:20px;position:relative;overflow:hidden;background:rgba(0,212,255,0.05);}
+.diag-stokes{position:relative;width:90%;height:80px;}
+.diag-stokes .sphere{position:absolute;left:50%;top:20px;width:22px;height:22px;background:radial-gradient(circle at 35% 35%,#fff,#00d4ff);border-radius:50%;transform:translateX(-50%);box-shadow:0 0 10px rgba(0,212,255,0.4);}
+.placeholder{display:flex;align-items:center;justify-content:center;height:300px;color:var(--text2);font-size:1.1rem;border:1px dashed var(--border);border-radius:12px;}
+#footer{text-align:center;padding:8px;font-size:0.75rem;color:rgba(255,255,255,0.25);flex-shrink:0;}
+.help-toggle{background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:rgba(255,255,255,0.25);cursor:pointer;font-size:0.72rem;font-family:inherit;padding:1px 8px;}
+.help-toggle:hover{color:var(--accent);border-color:var(--accent);}
+@keyframes warnFlash{0%,100%{border-color:var(--danger);box-shadow:0 0 8px rgba(255,82,82,0.4);}50%{border-color:var(--danger);box-shadow:0 0 16px rgba(255,82,82,0.7);}}
+.warn-flash{animation:warnFlash 0.5s ease 3;}
+.exp-panel{display:none;}
+.exp-panel.active{display:flex;flex-direction:column;gap:10px;}
+/* Ambient glow for competition presentation */
+body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;background:radial-gradient(ellipse at 30% 20%,rgba(0,212,255,0.04) 0%,transparent 60%),radial-gradient(ellipse at 70% 80%,rgba(123,97,255,0.03) 0%,transparent 60%);pointer-events:none;z-index:0;}
+#topbar,#body-wrap,#footer{position:relative;z-index:1;}
+
+/* Mode switch */
+.mode-bar{display:flex;gap:24px;justify-content:center;padding:4px 0;}
+.mode-radio{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text2);font-size:0.9rem;transition:color 0.2s;}
+.mode-radio:hover{color:var(--text);}
+.mode-radio input[type="radio"]{accent-color:var(--accent);}
+.mode-radio.active-label{color:var(--accent);}
+
+/* Compare layout */
+.compare-row{display:flex;gap:12px;}
+.compare-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;}
+.compare-col .card{padding:12px 14px;}
+.compare-col .section-title{text-align:center;font-size:0.9rem;font-weight:600;margin-bottom:2px;}
+.compare-col .section-title.a{color:var(--accent);}
+.compare-col .section-title.b{color:var(--accent3);}
+.compare-col .section-title.c{color:var(--accent2);}
+.compare-params{display:flex;flex-direction:column;gap:6px;}
+.compare-params .param-row label{width:50px;text-align:right;font-size:0.78rem;}
+.compare-params .param-row input[type="range"]{height:4px;}
+.compare-params .param-row input[type="range"]::-webkit-slider-thumb{width:14px;height:14px;}
+.compare-params .param-row input[type="number"]{width:66px;font-size:0.78rem;padding:3px 5px;}
+.compare-params .param-row .unit{width:38px;font-size:0.72rem;}
+.compare-data .data-item{padding:8px 10px;min-width:auto;}
+.compare-data .data-item .data-label{font-size:0.7rem;}
+.compare-data .data-item .data-value{font-size:1rem;}
+
+/* Compare canvas */
+#compare-canvas{width:100%;height:150px;border-radius:8px;display:block;background:rgba(6,10,25,0.8);}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="logo">&#x1f9ea; 黏性现象<span>仿真模拟器</span></div>
+  <div id="experiment-tabs">
+    <button data-exp="newton" class="active">牛顿粘性定律</button>
+    <button data-exp="poiseuille">泊肃叶定律</button>
+    <button data-exp="stokes">斯托克斯定律</button>
+  </div>
+</div>
+
+<div id="body-wrap">
+  <nav id="sidebar">
+    <button id="sidebar-toggle" title="折叠菜单">&#x2630;</button>
+    <ul id="sidebar-menu">
+      <li data-menu="principle" title="原理 — 实验理论说明"><span class="icon">&#x1f4d6;</span><span class="label">原理</span></li>
+      <li data-menu="graph" class="active" title="线图模拟 — 交互式曲线图与粒子动画"><span class="icon">&#x1f4c8;</span><span class="label">线图模拟</span></li>
+      <li data-menu="realistic" title="真实模拟 — 2.5D可视化示意"><span class="icon">&#x1f52c;</span><span class="label">真实模拟</span></li>
+    </ul>
+  </nav>
+
+  <div id="main">
+
+    <!-- ========== PRINCIPLE VIEWS ========== -->
+    <div id="principle-view" style="display:none;">
+      <div id="princ-newton" class="card principle-card exp-panel active">
+        <h2><span class="exp-icon">&#x1f9ea;</span>牛顿粘性定律</h2>
+        <div class="subtitle">Newton's Law of Viscosity — 流体剪切应力与速度梯度的线性关系</div>
+        <div class="principle-diagram"><canvas id="princ-canvas-newton" width="400" height="100" style="width:100%;height:100px;border-radius:6px;"></canvas></div>
+        <div class="formula">τ = <span class="hl">η</span> · (du/dy) = <span class="hl">η</span> · (U / d)</div>
+        <div class="var-grid">
+          <div class="var-item"><b>τ</b> 剪切应力 (Pa)</div><div class="var-item"><b>η</b> 动力粘度 (Pa·s)</div>
+          <div class="var-item"><b>du/dy</b> 速度梯度 (s⁻¹)</div><div class="var-item"><b>U</b> 上板速度 (m/s)</div>
+          <div class="var-item"><b>d</b> 板间距 (m)</div><div class="var-item"><b>u(y)</b> 距下板 y 处流速</div>
+        </div>
+        <div class="insight">&#x1f4a1; 速度分布 <b>u(y) = U·y/d</b> 为线性分布。粘度 η 越大，产生相同速度梯度所需的剪切应力越大。</div>
+        <div class="steps-wrap">
+          <button class="steps-toggle" onclick="this.nextElementSibling.classList.toggle('show');this.textContent=this.textContent.includes('展开')?'▲ 收起步骤':'▼ 展开实验步骤'">▼ 展开实验步骤</button>
+          <div class="steps-content">1. 调节粘度 η 滑块，观察 τ vs du/dy 曲线的斜率变化。<br>2. 修改上板速度 U 或板间距 d，观察速度梯度 du/dy 的变化。<br>3. 切换到"对比模式"，设置三组不同 η 值，对比曲线差异。<br>4. 点击"生成实验报告"查看多曲线对比分析。</div>
+        </div>
+      </div>
+      <div id="princ-poiseuille" class="card principle-card exp-panel">
+        <h2><span class="exp-icon">&#x1f50d;</span>泊肃叶定律</h2>
+        <div class="subtitle">Poiseuille's Law — 圆管中粘性流体的层流流动规律</div>
+        <div class="principle-diagram"><canvas id="princ-canvas-poiseuille" width="400" height="100" style="width:100%;height:100px;border-radius:6px;"></canvas></div>
+        <div class="formula">Q = π<span class="hl">R⁴</span>ΔP / (8ηL) &nbsp;&nbsp; u(r) = (ΔP/4ηL) · (<span class="hl">R² − r²</span>)</div>
+        <div class="var-grid">
+          <div class="var-item"><b>Q</b> 体积流量 (m³/s)</div><div class="var-item"><b>R</b> 管半径 (m)</div>
+          <div class="var-item"><b>ΔP</b> 压强差 (Pa)</div><div class="var-item"><b>η</b> 动力粘度 (Pa·s)</div>
+          <div class="var-item"><b>L</b> 管长 (m)</div><div class="var-item"><b>u(r)</b> 距中心 r 处流速</div>
+        </div>
+        <div class="insight">&#x1f4a1; 流速分布为<b>旋转抛物面</b>：中心最大 u<sub>max</sub>=ΔP·R²/(4ηL)，壁面为零。流量与 R⁴ 成正比。</div>
+        <div class="steps-wrap">
+          <button class="steps-toggle" onclick="this.nextElementSibling.classList.toggle('show');this.textContent=this.textContent.includes('展开')?'▲ 收起步骤':'▼ 展开实验步骤'">▼ 展开实验步骤</button>
+          <div class="steps-content">1. 调节管半径 R，观察抛物线形状变化（R⁴ 对流量影响极大）。<br>2. 修改压强差 ΔP，观察最大流速 u<sub>max</sub> 的线性响应。<br>3. 切换到"真实模拟"查看 2.5D 管道内粒子流动。<br>4. 使用对比模式比较不同管径下的流速分布。</div>
+        </div>
+      </div>
+      <div id="princ-stokes" class="card principle-card exp-panel">
+        <h2><span class="exp-icon">&#x26aa;</span>斯托克斯定律</h2>
+        <div class="subtitle">Stokes' Law — 小球在粘性流体中低速运动的阻力规律</div>
+        <div class="principle-diagram"><canvas id="princ-canvas-stokes" width="400" height="100" style="width:100%;height:100px;border-radius:6px;"></canvas></div>
+        <div class="formula">F<sub>d</sub> = <span class="hl">6πηr</span>v &nbsp;&nbsp; v<sub>t</sub> = 2r²(ρ<sub>p</sub>−ρ<sub>f</sub>)g / (<span class="hl">9η</span>)</div>
+        <div class="var-grid">
+          <div class="var-item"><b>F<sub>d</sub></b> 阻力 (N)</div><div class="var-item"><b>η</b> 动力粘度 (Pa·s)</div>
+          <div class="var-item"><b>r</b> 球半径 (m)</div><div class="var-item"><b>v<sub>t</sub></b> 终端速度 (m/s)</div>
+          <div class="var-item"><b>ρ<sub>p</sub></b> 球密度 (kg/m³)</div><div class="var-item"><b>ρ<sub>f</sub></b> 流体密度 (kg/m³)</div>
+        </div>
+        <div class="insight">&#x1f4a1; 小球先加速后匀速：<b>v(t)=v<sub>t</sub>(1−e<sup>−t/τ</sup>)</b>，τ=2ρ<sub>p</sub>r²/(9η)。适用条件：低雷诺数 (Re&lt;1) 层流。</div>
+        <div class="steps-wrap">
+          <button class="steps-toggle" onclick="this.nextElementSibling.classList.toggle('show');this.textContent=this.textContent.includes('展开')?'▲ 收起步骤':'▼ 展开实验步骤'">▼ 展开实验步骤</button>
+          <div class="steps-content">1. 改变球半径 r，观察终端速度 v<sub>t</sub> 的平方增长关系。<br>2. 调节粘度 η，观察沉降速度的显著变化。<br>3. 切换到"真实模拟"查看小球在容器中沉降的流线效果。<br>4. 注意雷诺数 Re — 确保小于 1 以满足斯托克斯定律适用条件。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== GRAPH VIEW ========== -->
+    <div id="graph-view" style="display:flex;flex-direction:column;gap:14px;">
+
+      <!-- ===== NORMAL MODE ===== -->
+      <div id="normal-mode">
+        <div class="card" style="flex-shrink:0;"><div id="chart-container" class="chart-box"></div></div>
+        <div id="canvas-container" class="card" style="margin-top:14px;">
+          <div style="margin-bottom:8px;font-size:0.85rem;color:var(--text2);" id="canvas-label">&#x1f3a5; 流动粒子示意</div>
+          <canvas id="particle-canvas"></canvas>
+        </div>
+
+        <!-- Newton params -->
+        <div id="params-newton" class="card param-group exp-panel active" style="margin-top:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><span style="font-size:0.9rem;color:var(--accent);">&#x2699; 实验参数 — 牛顿粘性定律</span><button class="btn-reset-params" onclick="resetParams('newton')" title="恢复默认参数">&#x21ba; 默认</button></div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;"><button class="btn-preset" onclick="setParamAndSync('n-visc','n-visc-num','newton','viscosity',0.2)">低粘度 0.2</button><button class="btn-preset" onclick="setParamAndSync('n-visc','n-visc-num','newton','viscosity',1.0)">中粘度 1.0</button><button class="btn-preset" onclick="setParamAndSync('n-visc','n-visc-num','newton','viscosity',5.0)">高粘度 5.0</button></div>
+          <button class="fluid-toggle" onclick="var w=this.nextElementSibling;w.classList.toggle('show');this.textContent=w.classList.contains('show')?'▲ 流体预设':'▼ 流体预设 (点击选择) '">▼ 流体预设 (点击选择) </button>
+          <div class="fluid-wrap"><div class="fluid-grid" id="fluid-grid-newton"></div></div>
+          <div class="param-row"><label>动力粘度 η</label><input type="range" id="n-visc" min="0.001" max="10" step="0.001" value="1.0"><input type="number" id="n-visc-num" min="0.001" max="10" step="0.001" value="1.0"><span class="unit">Pa·s</span></div>
+          <div class="param-row"><label>上板速度 U</label><input type="range" id="n-vel" min="0.1" max="10" step="0.1" value="2.0"><input type="number" id="n-vel-num" min="0.1" max="10" step="0.1" value="2.0"><span class="unit">m/s</span></div>
+          <div class="param-row"><label>板间距 d</label><input type="range" id="n-spac" min="0.01" max="0.2" step="0.001" value="0.05"><input type="number" id="n-spac-num" min="0.01" max="0.2" step="0.001" value="0.05"><span class="unit">m</span></div>
+        </div>
+
+        <!-- Poiseuille params -->
+        <div id="params-poiseuille" class="card param-group exp-panel" style="margin-top:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><span style="font-size:0.9rem;color:var(--accent);">&#x2699; 实验参数 — 泊肃叶定律</span><button class="btn-reset-params" onclick="resetParams('poiseuille')" title="恢复默认参数">&#x21ba; 默认</button></div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;"><button class="btn-preset" onclick="setParamAndSync('p-radius','p-radius-num','poiseuille','radius',0.005)">小半径 0.005</button><button class="btn-preset" onclick="setParamAndSync('p-radius','p-radius-num','poiseuille','radius',0.01)">中半径 0.01</button><button class="btn-preset" onclick="setParamAndSync('p-radius','p-radius-num','poiseuille','radius',0.02)">大半径 0.02</button></div>
+          <button class="fluid-toggle" onclick="var w=this.nextElementSibling;w.classList.toggle('show');this.textContent=w.classList.contains('show')?'▲ 流体预设':'▼ 流体预设 (点击选择) '">▼ 流体预设 (点击选择) </button>
+          <div class="fluid-wrap"><div class="fluid-grid" id="fluid-grid-poiseuille"></div></div>
+          <div class="param-row"><label>管半径 R</label><input type="range" id="p-radius" min="0.001" max="0.1" step="0.001" value="0.01"><input type="number" id="p-radius-num" min="0.001" max="0.1" step="0.001" value="0.01"><span class="unit">m</span></div>
+          <div class="param-row"><label>管长 L</label><input type="range" id="p-length" min="0.01" max="1" step="0.01" value="0.1"><input type="number" id="p-length-num" min="0.01" max="1" step="0.01" value="0.1"><span class="unit">m</span></div>
+          <div class="param-row"><label>压强差 ΔP</label><input type="range" id="p-dp" min="1" max="1000" step="1" value="100"><input type="number" id="p-dp-num" min="1" max="1000" step="1" value="100"><span class="unit">Pa</span></div>
+          <div class="param-row"><label>动力粘度 η</label><input type="range" id="p-visc" min="0.001" max="10" step="0.001" value="0.01"><input type="number" id="p-visc-num" min="0.001" max="10" step="0.001" value="0.01"><span class="unit">Pa·s</span></div>
+        </div>
+
+        <!-- Stokes params -->
+        <div id="params-stokes" class="card param-group exp-panel" style="margin-top:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><span style="font-size:0.9rem;color:var(--accent);">&#x2699; 实验参数 — 斯托克斯定律</span><button class="btn-reset-params" onclick="resetParams('stokes')" title="恢复默认参数">&#x21ba; 默认</button></div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;"><button class="btn-preset" onclick="setParamAndSync('s-radius','s-radius-num','stokes','radius',0.0005)">小球 0.0005</button><button class="btn-preset" onclick="setParamAndSync('s-radius','s-radius-num','stokes','radius',0.001)">中球 0.001</button><button class="btn-preset" onclick="setParamAndSync('s-radius','s-radius-num','stokes','radius',0.002)">大球 0.002</button></div>
+          <button class="fluid-toggle" onclick="var w=this.nextElementSibling;w.classList.toggle('show');this.textContent=w.classList.contains('show')?'▲ 流体预设':'▼ 流体预设 (点击选择) '">▼ 流体预设 (点击选择) </button>
+          <div class="fluid-wrap"><div class="fluid-grid" id="fluid-grid-stokes"></div></div>
+          <div class="param-row"><label>球半径 r</label><input type="range" id="s-radius" min="0.0001" max="0.01" step="0.0001" value="0.001"><input type="number" id="s-radius-num" min="0.0001" max="0.01" step="0.0001" value="0.001"><span class="unit">m</span></div>
+          <div class="param-row"><label>动力粘度 η</label><input type="range" id="s-visc" min="0.001" max="10" step="0.001" value="0.1"><input type="number" id="s-visc-num" min="0.001" max="10" step="0.001" value="0.1"><span class="unit">Pa·s</span></div>
+          <div class="param-row"><label>球密度 ρ<sub>p</sub></label><input type="range" id="s-rhop" min="1000" max="20000" step="100" value="7800"><input type="number" id="s-rhop-num" min="1000" max="20000" step="100" value="7800"><span class="unit">kg/m³</span></div>
+          <div class="param-row"><label>流体密度 ρ<sub>f</sub></label><input type="range" id="s-rhof" min="100" max="2000" step="10" value="1000"><input type="number" id="s-rhof-num" min="100" max="2000" step="10" value="1000"><span class="unit">kg/m³</span></div>
+        </div>
+
+        <!-- Data displays -->
+        <div id="data-newton" class="card exp-panel active" style="margin-top:14px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-size:0.9rem;color:var(--accent);">&#x1f4ca; 实时数据 — 牛顿粘性定律</span><button class="btn-copy-tbl" onclick="copyDataTable('data-newton')" title="复制表格到剪贴板">📋 复制</button></div><table class="data-table"><thead><tr><th>指标</th><th>理论值</th><th>仿真值</th><th>相对误差</th></tr></thead><tbody><tr><td class="metric">剪切应力 τ</td><td id="nd-shear-th">-</td><td id="nd-shear-sim">-</td><td class="err" id="nd-shear-err">-</td></tr><tr><td class="metric">速度梯度 du/dy</td><td id="nd-grad-th">-</td><td id="nd-grad-sim">-</td><td class="err" id="nd-grad-err">-</td></tr><tr><td class="metric">最大流速 u<sub>max</sub></td><td id="nd-maxv-th">-</td><td id="nd-maxv-sim">-</td><td class="err" id="nd-maxv-err">-</td></tr></tbody></table></div>
+        <div id="data-poiseuille" class="card exp-panel" style="margin-top:14px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-size:0.9rem;color:var(--accent);">&#x1f4ca; 实时数据 — 泊肃叶定律</span><button class="btn-copy-tbl" onclick="copyDataTable('data-poiseuille')" title="复制表格到剪贴板">📋 复制</button></div><table class="data-table"><thead><tr><th>指标</th><th>理论值</th><th>仿真值</th><th>相对误差</th></tr></thead><tbody><tr><td class="metric">最大流速 u<sub>max</sub></td><td id="pd-umax-th">-</td><td id="pd-umax-sim">-</td><td class="err" id="pd-umax-err">-</td></tr><tr><td class="metric">体积流量 Q</td><td id="pd-flow-th">-</td><td id="pd-flow-sim">-</td><td class="err" id="pd-flow-err">-</td></tr><tr><td class="metric">平均流速 u<sub>avg</sub></td><td id="pd-uavg-th">-</td><td id="pd-uavg-sim">-</td><td class="err" id="pd-uavg-err">-</td></tr><tr><td class="metric">雷诺数 Re</td><td id="pd-re-th">-</td><td id="pd-re-sim">-</td><td class="err" id="pd-re-err">-</td></tr></tbody></table></div>
+        <div id="data-stokes" class="card exp-panel" style="margin-top:14px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-size:0.9rem;color:var(--accent);">&#x1f4ca; 实时数据 — 斯托克斯定律</span><button class="btn-copy-tbl" onclick="copyDataTable('data-stokes')" title="复制表格到剪贴板">📋 复制</button></div><table class="data-table"><thead><tr><th>指标</th><th>理论值</th><th>仿真值</th><th>相对误差</th></tr></thead><tbody><tr><td class="metric">终端速度 v<sub>t</sub></td><td id="sd-vt-th">-</td><td id="sd-vt-sim">-</td><td class="err" id="sd-vt-err">-</td></tr><tr><td class="metric">阻力 F<sub>d</sub> (平衡时)</td><td id="sd-fd-th">-</td><td id="sd-fd-sim">-</td><td class="err" id="sd-fd-err">-</td></tr><tr><td class="metric">雷诺数 Re</td><td id="sd-re-th">-</td><td id="sd-re-sim">-</td><td class="err" id="sd-re-err">-</td></tr></tbody></table></div>
+      </div>
+
+      <!-- ===== COMPARE MODE (dynamically built by buildCompareUI) ===== -->
+      <div id="compare-mode" style="display:none;flex-direction:column;gap:14px;"></div>
+
+      <!-- ===== Shared: animation controls ===== -->
+      <div class="anim-controls">
+        <button id="btn-play">&#x25b6; 开始</button>
+        <button id="btn-pause">&#x23f8; 暂停</button>
+        <button id="btn-reset">&#x21ba; 重置</button>
+      </div>
+
+      <!-- ===== Export buttons ===== -->
+      <div class="btn-export" style="flex-wrap:wrap;">
+        <button id="btn-csv">&#x1f4e5; 导出CSV</button>
+        <button id="btn-xlsx">&#x1f4ca; 导出Excel (.xlsx)</button>
+        <button id="btn-report">&#x1f4c4; 生成实验报告</button>
+      </div>
+
+      <!-- ===== Mode switch (Newton only) ===== -->
+      <div class="card mode-bar" id="mode-switch-bar">
+        <label class="mode-radio active-label"><input type="radio" name="sim-mode" value="normal" checked> 常规模式</label>
+        <label class="mode-radio"><input type="radio" name="sim-mode" value="compare" id="radio-compare"> 对比模式（三组独立参数）</label>
+      </div>
+    </div>
+
+    <!-- ========== REALISTIC VIEWS ========== -->
+    <div id="realistic-view" style="display:none;flex-direction:column;gap:16px;">
+      <div id="real-newton" class="card exp-panel active" style="flex-direction:column;gap:8px;">
+        <div style="font-size:0.9rem;color:var(--accent);">&#x1f3ac; 牛顿粘性定律 — 增强 2D 示意图</div>
+        <canvas id="real-canvas-newton" style="width:100%;height:400px;border-radius:8px;background:rgba(6,10,25,0.8);"></canvas>
+        <div style="font-size:0.78rem;color:var(--text2);">矢量箭头长度表示该层流速大小，颜色越亮速度越快</div>
+      </div>
+      <div id="real-poiseuille" class="card exp-panel" style="flex-direction:column;gap:8px;">
+        <div style="font-size:0.9rem;color:var(--accent);">&#x1f50e; 泊肃叶定律 — 2.5D 透视管道</div>
+        <canvas id="real-canvas-poiseuille" style="width:100%;height:420px;border-radius:8px;background:rgba(6,10,25,0.8);"></canvas>
+        <div style="font-size:0.78rem;color:var(--text2);">半透明管壁展示内部流动，粒子径向速度呈抛物线分布（中心快、边缘慢）</div>
+      </div>
+      <div id="real-stokes" class="card exp-panel" style="flex-direction:column;gap:8px;">
+        <div style="font-size:0.9rem;color:var(--accent);">&#x26aa; 斯托克斯定律 — 增强 2D 示意图</div>
+        <canvas id="real-canvas-stokes" style="width:100%;height:400px;border-radius:8px;background:rgba(6,10,25,0.8);"></canvas>
+        <div style="font-size:0.78rem;color:var(--text2);">流线绕流示意 + 尾流区展示，阻力与速度成正比</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="footer">大学生物理实验竞赛 · 自选题赛道 · 黏性现象仿真模拟器 &nbsp;|&nbsp; <button class="help-toggle" onclick="var h=document.getElementById('help-panel');h.style.display=h.style.display==='block'?'none':'block';this.textContent=h.style.display==='block'?'▲ 操作指南':'▼ 操作指南'">▼ 操作指南</button></div>
+<div id="help-panel" style="display:none;position:fixed;bottom:36px;left:50%;transform:translateX(-50%);background:rgba(12,20,40,0.95);border:1px solid var(--border);border-radius:12px;padding:16px 24px;z-index:100;max-width:500px;font-size:0.82rem;color:var(--text2);line-height:1.7;">
+<b style="color:var(--accent);">键盘快捷键：</b><br>
+<b>Space</b> — 开始/暂停动画 &nbsp; <b>R</b> — 重置参数 &nbsp; <b>C</b> — 切换对比模式<br>
+<b>1</b> — 牛顿实验 &nbsp; <b>2</b> — 泊肃叶实验 &nbsp; <b>3</b> — 斯托克斯实验<br>
+<b style="color:var(--accent);">鼠标操作：</b><br>
+点击左侧菜单切换 原理/线图模拟/真实模拟<br>
+拖动滑块或直接输入数值调节参数<br>
+数据表格旁 📋 按钮可复制表格到剪贴板<br>
+<button onclick="document.getElementById('help-panel').style.display='none'" style="margin-top:8px;padding:3px 12px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer;font-size:0.75rem;">关闭</button></div>
+
+<script>
+// ============================================================
+//  STATE
+// ============================================================
+var state = { experiment:'newton', menuItem:'graph', mode:'normal', animationRunning:false };
+
+var params = {
+  newton:   { viscosity:1.0, velocity:2.0, spacing:0.05 },
+  poiseuille: { radius:0.01, length:0.1, dp:100, viscosity:0.01 },
+  stokes:   { radius:0.001, viscosity:0.1, rhop:7800, rhof:1000, g:9.81 }
+};
+
+// Comparison params — per-experiment, initialized on compare mode entry
+var compParams = { A:{}, B:{}, C:{} };
+var _compDefaults = {
+  newton: [
+    {viscosity:1.0, velocity:2.0, spacing:0.05},
+    {viscosity:1.0, velocity:3.0, spacing:0.07},
+    {viscosity:1.0, velocity:4.0, spacing:0.09}
+  ],
+  poiseuille: [
+    {radius:0.01, length:0.1, dp:100, viscosity:0.01},
+    {radius:0.015, length:0.1, dp:100, viscosity:0.01},
+    {radius:0.01, length:0.1, dp:200, viscosity:0.01}
+  ],
+  stokes: [
+    {radius:0.001, viscosity:0.1, rhop:7800, rhof:1000, g:9.81},
+    {radius:0.002, viscosity:0.1, rhop:7800, rhof:1000, g:9.81},
+    {radius:0.001, viscosity:0.05, rhop:7800, rhof:1000, g:9.81}
+  ]
+};
+
+function $(id) { return document.getElementById(id); }
+
+// ============================================================
+//  PHYSICS
+// ============================================================
+// Deterministic perturbation: based on parameter ratios, not random
+function detPerturb(v, ratio, pct) { return v * (1 + (ratio - 1) * pct / 100); }
+function newtonPhysics(p) {
+  var g=p.velocity/p.spacing, shear=p.viscosity*g;
+  // Deterministic error: proportional to η deviation from reference (1.0 Pa·s)
+  var etaRatio = p.viscosity / 1.0;
+  return {shear:shear, shearSim:detPerturb(shear,etaRatio,2), gradient:g, gradientSim:detPerturb(g,etaRatio,1), umax:p.velocity, umaxSim:p.velocity};
+}
+function poiseuillePhysics(p) {
+  var um=p.dp*p.radius*p.radius/(4*p.viscosity*p.length), Q=Math.PI*Math.pow(p.radius,4)*p.dp/(8*p.viscosity*p.length), ua=um/2;
+  var rho = p._rho || 1000;
+  var Re = rho * ua * (2*p.radius) / Math.max(p.viscosity, 1e-9);
+  // Deterministic error based on R deviation from reference (0.01 m)
+  var RRatio = p.radius / 0.01;
+  return {umax:um, umaxSim:detPerturb(um,RRatio,1.5), Q:Q, QSim:detPerturb(Q,RRatio,2), uavg:ua, uavgSim:detPerturb(ua,RRatio,1.5), Re:Re, ReSim:Re};
+}
+function stokesPhysics(p) {
+  var r=p.radius, eta=p.viscosity, rhop=p.rhop, rhof=p.rhof, g=p.g;
+  var V=(4/3)*Math.PI*r*r*r, m=rhop*V;
+  var Fg=(rhop-rhof)*V*g, dragC=6*Math.PI*eta*r;
+  var vt=Fg/dragC; if(vt<0)vt=0; var tau=m/dragC;
+  // Euler numerical integration for 5*tau (produces small discretization error)
+  var simT=5*Math.max(tau,0.0001), dt=Math.max(tau,0.0001)/100;
+  var vSim=0;
+  for(var t=0;t<simT;t+=dt){ var a=(Fg-dragC*vSim)/m; vSim+=a*dt; }
+  if(vSim<0)vSim=0;
+  return {vt:vt, vtSim:vSim, Fd:dragC*vt, FdSim:dragC*vSim, Re:2*r*vt*rhof/eta, ReSim:2*r*vSim*rhof/eta, tau:tau, Fg:Fg, dragC:dragC, m:m, V:V, r:r};
+}
+
+// ============================================================
+//  ECharts — main chart
+// ============================================================
+var myChart = null;
+
+function baseChartOpt(title, xName, yName) {
+  return {
+    backgroundColor:'rgba(6,10,25,0.6)', textStyle:{color:'#8899bb'},
+    title:{text:title,left:'center',top:6,textStyle:{color:'#dde4f0',fontSize:15,fontWeight:'normal'}},
+    tooltip:{trigger:'axis',backgroundColor:'rgba(10,15,30,0.95)',borderColor:'rgba(0,212,255,0.3)',textStyle:{color:'#dde4f0',fontSize:12}},
+    grid:{left:56,right:28,top:50,bottom:50},
+    xAxis:{name:xName,nameLocation:'center',nameGap:32,nameTextStyle:{color:'#8899bb',fontSize:12},axisLine:{lineStyle:{color:'rgba(255,255,255,0.2)'}},axisLabel:{color:'#8899bb'},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}}},
+    yAxis:{name:yName,nameLocation:'center',nameGap:44,nameTextStyle:{color:'#8899bb',fontSize:12},axisLine:{lineStyle:{color:'rgba(255,255,255,0.2)'}},axisLabel:{color:'#8899bb'},splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)'}}}
+  };
+}
+
+function setNewtonChart(chartDom, p, title) {
+  if (!chartDom) return;
+  var opt = baseChartOpt(title||'牛顿粘性定律 — 速度分布','速度 u (m/s)','距下板距离 y (m)');
+  opt.xAxis.min=0; opt.xAxis.max=Math.max(p.velocity*1.15,0.5);
+  opt.yAxis.min=0; opt.yAxis.max=Math.max(p.spacing*1.15,0.01);
+  opt.tooltip.formatter=function(ps){var v=ps[0].value;return 'u: <b>'+v[0].toFixed(3)+'</b> m/s<br/>y: <b>'+v[1].toFixed(3)+'</b> m';};
+  opt.series=[{type:'line',data:[[0,0],[p.velocity,p.spacing]],smooth:false,lineStyle:{color:'#00d4ff',width:3},itemStyle:{color:'#00d4ff'},symbol:'circle',symbolSize:9}];
+  chartDom.setOption(opt,{notMerge:true});
+}
+
+function setPoiseuilleChart() {
+  if (!myChart) return;
+  var p=params.poiseuille, R=p.radius, umax=p.dp*R*R/(4*p.viscosity*p.length);
+  var pts=[];
+  for(var i=0;i<=60;i++){var r=-R+2*R*i/60;pts.push([umax*(1-r*r/(R*R)),r]);}
+  var opt=baseChartOpt('泊肃叶定律 — 流速径向分布','流速 u (m/s)','径向位置 r (m)');
+  opt.xAxis.min=0; opt.xAxis.max=Math.max(umax*1.15,0.001); opt.yAxis.min=-R*1.15; opt.yAxis.max=R*1.15;
+  opt.tooltip.formatter=function(ps){var v=ps[0].value;return 'u: <b>'+v[0].toFixed(4)+'</b> m/s<br/>r: <b>'+v[1].toFixed(4)+'</b> m';};
+  opt.series=[{type:'line',data:pts,smooth:true,lineStyle:{color:'#00d4ff',width:3},itemStyle:{color:'#00d4ff'},symbol:'none',areaStyle:{color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'rgba(0,212,255,0.01)'},{offset:1,color:'rgba(0,212,255,0.2)'}])}}];
+  myChart.setOption(opt,{notMerge:true});
+}
+
+function setStokesChart() {
+  if (!myChart) return;
+  var p=params.stokes, phy=stokesPhysics(p), vt=phy.vt, tau=phy.tau;
+  var pts=[], tMax=tau>0.001?5*tau:0.1;
+  for(var i=0;i<=80;i++){var t=tMax*i/80;pts.push([t,vt*(1-Math.exp(-t/Math.max(tau,0.0001)))]);}
+  var opt=baseChartOpt('斯托克斯定律 — 速度-时间曲线','时间 t (s)','速度 v (m/s)');
+  opt.xAxis.min=0; opt.xAxis.max=tMax; opt.yAxis.min=0; opt.yAxis.max=Math.max(vt*1.15,0.01);
+  opt.tooltip.formatter=function(ps){var v=ps[0].value;return 't: <b>'+v[0].toFixed(4)+'</b> s<br/>v: <b>'+v[1].toFixed(4)+'</b> m/s';};
+  opt.series=[{type:'line',data:pts,smooth:true,lineStyle:{color:'#00d4ff',width:3},itemStyle:{color:'#00d4ff'},symbol:'none'},{type:'line',data:[[0,vt],[tMax,vt]],lineStyle:{color:'#ff9800',width:1.5,type:'dashed'},symbol:'none'}];
+  myChart.setOption(opt,{notMerge:true});
+}
+
+function updateMainChart() {
+  if (typeof echarts==='undefined') return;
+  if (!myChart) { initMainChart(); return; }
+  if (state.experiment==='newton') setNewtonChart(myChart, params.newton, '牛顿粘性定律 — 速度分布');
+  else if (state.experiment==='poiseuille') setPoiseuilleChart();
+  else if (state.experiment==='stokes') setStokesChart();
+}
+
+function initMainChart() {
+  var dom=$('chart-container');
+  if (!dom||dom.offsetWidth===0) return;
+  if (typeof echarts==='undefined') { dom.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div><p style="color:#ff9800;font-size:1.1rem;">&#x26a0; ECharts 未加载</p></div></div>'; return; }
+  if (myChart) { myChart.dispose(); myChart=null; }
+  myChart=echarts.init(dom);
+  updateMainChart();
+}
+
+// ============================================================
+//  COMPARISON MODE — dynamic UI builder
+// ============================================================
+var compCharts = { A:null, B:null, C:null };
+var compParticles = null;
+var compCanvas = null;
+var compCtx = null;
+var compBuilt = false; // track whether compare UI is in the DOM
+
+function safeVal(id, v) {
+  var el = document.getElementById(id);
+  if (el) el.value = v;
+}
+
+function buildCompareUI() {
+  if (compBuilt) return;
+  var container = $('compare-mode'); if (!container) return;
+  container.innerHTML = '';
+  var exp = state.experiment, colors = {A:'a',B:'b',C:'c'};
+  var paramDefs = {
+    newton:   [{id:'visc',label:'η',min:'0.001',max:'10',step:'0.001',unit:'Pa·s',key:'viscosity'},{id:'vel',label:'U',min:'0.1',max:'10',step:'0.1',unit:'m/s',key:'velocity'},{id:'spac',label:'d',min:'0.01',max:'0.2',step:'0.001',unit:'m',key:'spacing'}],
+    poiseuille:[{id:'radius',label:'R',min:'0.001',max:'0.1',step:'0.001',unit:'m',key:'radius'},{id:'length',label:'L',min:'0.01',max:'1',step:'0.01',unit:'m',key:'length'},{id:'dp',label:'ΔP',min:'1',max:'1000',step:'1',unit:'Pa',key:'dp'},{id:'visc',label:'η',min:'0.001',max:'10',step:'0.001',unit:'Pa·s',key:'viscosity'}],
+    stokes:    [{id:'radius',label:'r',min:'0.0001',max:'0.01',step:'0.0001',unit:'m',key:'radius'},{id:'visc',label:'η',min:'0.001',max:'10',step:'0.001',unit:'Pa·s',key:'viscosity'},{id:'rhop',label:'ρp',min:'1000',max:'20000',step:'100',unit:'kg/m³',key:'rhop'},{id:'rhof',label:'ρf',min:'100',max:'2000',step:'10',unit:'kg/m³',key:'rhof'}]
+  };
+  var dataDefs = {
+    newton: [{id:'shear',label:'τ'},{id:'grad',label:'du/dy'},{id:'maxv',label:'u_max'}],
+    poiseuille:[{id:'umax',label:'u_max'},{id:'flow',label:'Q'},{id:'uavg',label:'u_avg'}],
+    stokes: [{id:'vt',label:'v_t'},{id:'fd',label:'F_d'},{id:'re',label:'Re'}]
+  };
+  var labels = {newton:'牛顿粘性定律', poiseuille:'泊肃叶定律', stokes:'斯托克斯定律'};
+  var html = '';
+  // Charts row
+  html += '<div class="compare-row">';
+  ['A','B','C'].forEach(function(k) {
+    html += '<div class="compare-col"><div class="card"><div class="section-title '+colors[k]+'">'+labels[exp]+' — 模拟 '+k+'</div><div id="chart-comp'+k+'" class="chart-sm" style="width:100%;height:280px;"></div></div></div>';
+  });
+  html += '</div>';
+
+  // Canvas
+  html += '<div class="card"><div style="margin-bottom:6px;font-size:0.82rem;color:var(--text2);">&#x1f3a5; 流动粒子对比（左:A 中:B 右:C）</div><canvas id="compare-canvas" style="width:100%;height:150px;border-radius:8px;display:block;background:rgba(6,10,25,0.8);"></canvas></div>';
+  // Params
+  var defs = paramDefs[exp] || paramDefs.newton;
+  html += '<div class="compare-row">';
+  ['A','B','C'].forEach(function(k) {
+    var vals = compParams[k], kk = k.toLowerCase();
+    html += '<div class="compare-col"><div class="card compare-params"><div class="section-title '+colors[k]+'">模拟 '+k+' 参数</div>';
+    defs.forEach(function(d) {
+      html += '<div class="param-row"><label>'+d.label+'</label><input type="range" id="c'+kk+'-'+d.id+'" min="'+d.min+'" max="'+d.max+'" step="'+d.step+'" value="'+(vals[d.key]||0)+'"><input type="number" id="c'+kk+'-'+d.id+'-num" min="'+d.min+'" max="'+d.max+'" step="'+d.step+'" value="'+(vals[d.key]||0)+'"><span class="unit">'+d.unit+'</span></div>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div>';
+  // Data
+  var ddefs = dataDefs[exp] || dataDefs.newton;
+  html += '<div class="compare-row">';
+  ['A','B','C'].forEach(function(k) {
+    var kk = k.toLowerCase();
+    html += '<div class="compare-col"><div class="card compare-data"><div class="section-title '+colors[k]+'">模拟 '+k+' 数据</div>';
+    html += '<table class="data-table" style="font-size:0.72rem;"><thead><tr><th>指标</th><th>理论</th><th>仿真</th><th>误差</th></tr></thead><tbody>';
+    ddefs.forEach(function(d) {
+      html += '<tr><td class="metric">'+d.label+'</td><td id="comp_'+kk+'_'+d.id+'-th">-</td><td id="comp_'+kk+'_'+d.id+'-sim">-</td><td class="err" id="comp_'+kk+'_'+d.id+'-err">-</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+  bindCompareParamHandlers();
+  compBuilt = true;
+}
+
+function destroyCompareUI() {
+  disposeCompCharts();
+  compParticles = null;
+  _compBound = {}; // reset dedup so rebuilt elements get fresh listeners
+  var container = $('compare-mode');
+  if (container) container.innerHTML = '';
+  compBuilt = false;
+}
+
+function bindCompareParamHandlers() {
+  var exp = state.experiment;
+  var mapping = {
+    newton: [['visc','viscosity'],['vel','velocity'],['spac','spacing']],
+    poiseuille: [['radius','radius'],['length','length'],['dp','dp'],['visc','viscosity']],
+    stokes: [['radius','radius'],['visc','viscosity'],['rhop','rhop'],['rhof','rhof']]
+  };
+  var pairs = mapping[exp] || mapping.newton;
+  ['A','B','C'].forEach(function(k) {
+    var kk = k.toLowerCase();
+    pairs.forEach(function(p) {
+      bindCompSN('c'+kk+'-'+p[0], 'c'+kk+'-'+p[0]+'-num', k, p[1]);
+    });
+  });
+}
+
+// Bind one compare slider-number pair (only once)
+var _compBound = {};
+function bindCompSN(sId, nId, simKey, key) {
+  var uid = sId + '|' + nId;
+  if (_compBound[uid]) return;
+  _compBound[uid] = true;
+
+  var slider = document.getElementById(sId);
+  var num = document.getElementById(nId);
+  if (!slider || !num) return;
+
+  slider.addEventListener('input', function() {
+    var v = parseFloat(slider.value);
+    num.value = v;
+    compParams[simKey][key] = v;
+    scheduleCompChartUpdate();
+    updateCompDataDisplay();
+  });
+  num.addEventListener('input', function() {
+    var v = parseFloat(num.value);
+    if (isNaN(v)) return;
+    var mn=parseFloat(slider.min), mx=parseFloat(slider.max);
+    if(v<mn){v=mn;num.value=v;showWarn(num);}
+    if(v>mx){v=mx;num.value=v;showWarn(num);}
+    slider.value = v;
+    compParams[simKey][key] = v;
+    scheduleCompChartUpdate();
+    updateCompDataDisplay();
+  });
+  num.addEventListener('blur', function() {
+    var v = parseFloat(num.value);
+    var mn=parseFloat(slider.min), mx=parseFloat(slider.max);
+    if(isNaN(v)||v<mn||v>mx){
+      v=(isNaN(v)||v<mn)?mn:mx;
+      num.value=v; slider.value=v; compParams[simKey][key]=v;
+      scheduleCompChartUpdate(); updateCompDataDisplay();
+      showWarn(num);
+    }
+  });
+}
+
+var _compObservers = [];
+function initCompCharts() {
+  if (typeof echarts === 'undefined') return;
+  // Dispose old observers
+  _compObservers.forEach(function(o){ try{o.disconnect();}catch(e){} }); _compObservers = [];
+  var inited = {};
+
+  function tryInitAll() {
+    ['A','B','C'].forEach(function(k) {
+      if (inited[k]) return;
+      var dom = document.getElementById('chart-comp'+k);
+      if (!dom) return;
+      var card = dom.parentElement;
+      if (card && card.clientWidth > 0) dom.style.width = Math.max(card.clientWidth - 28, 180) + 'px';
+      dom.style.height = '280px';
+      if (dom.clientWidth === 0) return;
+      if (compCharts[k]) { try{compCharts[k].dispose();}catch(e){} compCharts[k]=null; }
+      try {
+        compCharts[k] = echarts.init(dom, null, {width:dom.clientWidth, height:dom.clientHeight||280});
+        inited[k] = true;
+      } catch(e) {}
+    });
+    if (inited.A && inited.B && inited.C) {
+      _compObservers.forEach(function(o){ try{o.disconnect();}catch(e){} }); _compObservers = [];
+      updateCompCharts();
+    }
+  }
+
+  // Setup ResizeObserver for each container
+  ['A','B','C'].forEach(function(k) {
+    var dom = document.getElementById('chart-comp'+k);
+    if (!dom) return;
+    tryInitAll(); // try immediate
+    if (typeof ResizeObserver !== 'undefined') {
+      var ro = new ResizeObserver(function() { tryInitAll(); });
+      ro.observe(dom); _compObservers.push(ro);
+    } else {
+      // Fallback polling for browsers without ResizeObserver
+      var iv = setInterval(function() { if (inited.A&&inited.B&&inited.C) clearInterval(iv); else tryInitAll(); }, 50);
+    }
+  });
+}
+
+var _compChartPending = false;
+function scheduleCompChartUpdate() {
+  if (!_compChartPending) {
+    _compChartPending = true;
+    requestAnimationFrame(function() {
+      _compChartPending = false;
+      updateCompCharts();
+    });
+  }
+}
+function setCompChart(ec, params, k) {
+  var exp = state.experiment;
+  if (exp==='newton') setNewtonChart(ec, params, '速度分布 — 模拟'+k);
+  else if (exp==='poiseuille') setCompPoiseuilleChart(ec, params, '流速径向分布 — 模拟'+k);
+  else if (exp==='stokes') setCompStokesChart(ec, params, '速度-时间曲线 — 模拟'+k);
+}
+function setCompPoiseuilleChart(ec, p, title) {
+  var R=p.radius, umax=p.dp*R*R/(4*p.viscosity*p.length), pts=[];
+  for(var i=0;i<=60;i++){var r=-R+2*R*i/60;pts.push([umax*(1-r*r/(R*R)),r]);}
+  var opt=baseChartOpt(title||'流速径向分布','u (m/s)','r (m)');
+  opt.xAxis.min=0;opt.xAxis.max=Math.max(umax*1.15,0.001);opt.yAxis.min=-R*1.15;opt.yAxis.max=R*1.15;
+  opt.tooltip.formatter=function(ps){var v=ps[0].value;return 'u: '+v[0].toFixed(4)+' m/s<br/>r: '+v[1].toFixed(4)+' m';};
+  opt.series=[{type:'line',data:pts,smooth:true,lineStyle:{color:'#00d4ff',width:2},symbol:'none',areaStyle:{color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'rgba(0,212,255,0.01)'},{offset:1,color:'rgba(0,212,255,0.15)'}])}}];
+  ec.setOption(opt,{notMerge:true});
+}
+function setCompStokesChart(ec, p, title) {
+  var phy=stokesPhysics(p), vt=phy.vt, tau=phy.tau, tMax=tau>0.001?5*tau:0.1, pts=[];
+  for(var i=0;i<=80;i++){var t=tMax*i/80;pts.push([t,vt*(1-Math.exp(-t/Math.max(tau,0.0001)))]);}
+  var opt=baseChartOpt(title||'速度-时间曲线','t (s)','v (m/s)');
+  opt.xAxis.min=0;opt.xAxis.max=tMax;opt.yAxis.min=0;opt.yAxis.max=Math.max(vt*1.15,0.01);
+  opt.tooltip.formatter=function(ps){var v=ps[0].value;return 't: '+v[0].toFixed(4)+' s<br/>v: '+v[1].toFixed(4)+' m/s';};
+  opt.series=[{type:'line',data:pts,smooth:true,lineStyle:{color:'#00d4ff',width:2},symbol:'none'},{type:'line',data:[[0,vt],[tMax,vt]],lineStyle:{color:'#ff9800',width:1.2,type:'dashed'},symbol:'none'}];
+  ec.setOption(opt,{notMerge:true});
+}
+function updateCompCharts() {
+  ['A','B','C'].forEach(function(k) {
+    if (compCharts[k]) {
+      try { setCompChart(compCharts[k], compParams[k], k); }
+      catch(e) {}
+    } else {
+      var dom = document.getElementById('chart-comp'+k);
+      if (dom && dom.clientWidth > 0 && typeof echarts !== 'undefined') {
+        try {
+          compCharts[k] = echarts.init(dom, null, { width: dom.clientWidth, height: dom.clientHeight || 280 });
+          setCompChart(compCharts[k], compParams[k], k);
+        } catch(e) {}
+      }
+    }
+  });
+}
+
+function disposeCompCharts() {
+  ['A','B','C'].forEach(function(k) {
+    if (compCharts[k]) { try { compCharts[k].dispose(); } catch(e) {} compCharts[k] = null; }
+  });
+}
+
+// ---- Compare canvas ----
+function resizeCompCanvas() {
+  compCanvas = document.getElementById('compare-canvas');
+  if (!compCanvas) return;
+  compCtx = compCanvas.getContext('2d');
+  var card = compCanvas.parentElement;
+  if (!card) return;
+  var w = Math.max(card.clientWidth - 40, 100);
+  var h = 150;
+  var dpr = window.devicePixelRatio || 1;
+  compCanvas.width = w * dpr;
+  compCanvas.height = h * dpr;
+  compCanvas.style.width = w + 'px';
+  compCanvas.style.height = h + 'px';
+  compCtx.setTransform(1, 0, 0, 1, 0, 0);
+  compCtx.scale(dpr, dpr);
+}
+
+function initCompParticles() {
+  if (!compCanvas) return;
+  var cm = getCM(compCanvas);
+  if (!cm || cm.w <= 0) return;
+  compParticles = { A:[], B:[], C:[] };
+  var zW = Math.max(cm.w / 3, 50);
+  ['A','B','C'].forEach(function(k) {
+    for (var i = 0; i < 40; i++) compParticles[k].push({ x: Math.random() * zW });
+  });
+}
+
+function updateCompParticles(dt) {
+  if (!compParticles || !compCanvas) return;
+  var cm = getCM(compCanvas);
+  if (!cm || cm.w <= 0) return;
+  var zW = Math.max(cm.w / 3, 50);
+  var exp = state.experiment;
+  ['A','B','C'].forEach(function(k) {
+    if (!compParticles[k]) return;
+    var p = compParams[k]; if (!p) return;
+    if (exp==='newton') {
+      var U = p.velocity || 0, scale = zW / 5;
+      compParticles[k].forEach(function(pt, i) { var yn=(i+0.5)/Math.max(compParticles[k].length,1); pt.x+=U*yn*scale*dt; if(pt.x>zW+10)pt.x=-10; });
+    } else if (exp==='poiseuille') {
+      var R=p.radius||0.01, umax=(p.dp||0)*R*R/(4*(p.viscosity||0.01)*(p.length||0.1));
+      var scl = zW/Math.max(umax,0.001)/3;
+      compParticles[k].forEach(function(pt,i){var yn=(i+0.5)/Math.max(compParticles[k].length,1),rf=Math.abs(yn-0.5)*2,speed=umax*(1-rf*rf);pt.x+=Math.max(0,speed)*scl*dt;if(pt.x>zW+10)pt.x=-10;});
+    } else if (exp==='stokes') {
+      // Simple horizontal drift for Stokes compare
+      compParticles[k].forEach(function(pt,i){pt.x+=zW*0.2*dt;if(pt.x>zW+10)pt.x=-10;});
+    }
+  });
+}
+
+function renderCompCanvas() {
+  if (!compCanvas || !compCtx || !compParticles) return;
+  var cm = getCM(compCanvas);
+  if (!cm || cm.w <= 0) return;
+  var w = cm.w, topY = cm.topY + 8, bottomY = cm.bottomY - 8;
+  var zW = Math.max(w / 3, 50), flowH = Math.max(bottomY - topY, 20);
+  var colors = { A: '#00d4ff', B: '#ff9800', C: '#7b61ff' };
+  compCtx.clearRect(0, 0, w, cm.h);
+
+  ['A','B','C'].forEach(function(k, zi) {
+    if (!compParticles[k]) return;
+    var ox = zi * zW;
+    // Zone background
+    var grad = compCtx.createLinearGradient(0, bottomY, 0, topY);
+    grad.addColorStop(0, 'rgba(0,20,60,0.35)'); grad.addColorStop(0.5, 'rgba(0,40,100,0.35)'); grad.addColorStop(1, 'rgba(0,80,160,0.35)');
+    compCtx.fillStyle = grad; compCtx.fillRect(ox, topY, zW, flowH);
+    // Separator
+    if (zi > 0) { compCtx.strokeStyle = 'rgba(255,255,255,0.08)'; compCtx.lineWidth = 1; compCtx.beginPath(); compCtx.moveTo(ox, topY); compCtx.lineTo(ox, bottomY); compCtx.stroke(); }
+    // Top/bottom boundary lines
+    compCtx.strokeStyle = '#fff'; compCtx.lineWidth = 1.5; compCtx.beginPath(); compCtx.moveTo(ox + 4, bottomY); compCtx.lineTo(ox + zW - 4, bottomY); compCtx.stroke();
+    compCtx.strokeStyle = colors[k]; compCtx.lineWidth = 1.5; compCtx.shadowColor = colors[k]; compCtx.shadowBlur = 5;
+    compCtx.beginPath(); compCtx.moveTo(ox + 4, topY); compCtx.lineTo(ox + zW - 4, topY); compCtx.stroke(); compCtx.shadowBlur = 0;
+    compCtx.fillStyle = colors[k]; compCtx.font = 'bold 9px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'; compCtx.fillText(k, ox + 4, topY + 12);
+    // Particles
+    compParticles[k].forEach(function(p, i) {
+      var yn = (i + 0.5) / Math.max(compParticles[k].length, 1);
+      var py = bottomY - yn * flowH;
+      var g = Math.round(30 + yn * 180), b = Math.round(80 + yn * 175);
+      var alpha = 0.35 + yn * 0.55, radius = 1.2 + yn * 2.0;
+      compCtx.fillStyle = 'rgba(0,' + g + ',' + b + ',' + alpha + ')';
+      compCtx.beginPath(); compCtx.arc(ox + p.x, py, radius, 0, Math.PI * 2); compCtx.fill();
+    });
+  });
+}
+
+function updateCompDataDisplay() {
+  ['A','B','C'].forEach(function(k) {
+    var kk = k.toLowerCase();
+    var phy = newtonPhysics(compParams[k]);
+    var el;
+    el = document.getElementById('cd'+kk+'-shear'); if (el) el.textContent = phy.shear.toFixed(3) + ' Pa';
+    el = document.getElementById('cd'+kk+'-grad'); if (el) el.textContent = phy.gradient.toFixed(3) + ' s⁻¹';
+    el = document.getElementById('cd'+kk+'-maxv'); if (el) el.textContent = phy.umax.toFixed(3) + ' m/s';
+  });
+}
+
+// ============================================================
+//  CANVAS — normal mode
+// ============================================================
+var particles=[], NUM_P=100;
+var canvas, ctx;
+
+function resizeCanvas() {
+  canvas = $('particle-canvas'); ctx = canvas.getContext('2d');
+  var container = $('canvas-container');
+  var w = container.clientWidth - 40, h = 180;
+  var dpr = window.devicePixelRatio||1;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  canvas.style.width = w+'px'; canvas.style.height = h+'px';
+  ctx.setTransform(1,0,0,1,0,0); ctx.scale(dpr,dpr);
+}
+
+function getCM(c) {
+  c = c || canvas;
+  var w = parseFloat(c.style.width) || c.clientWidth;
+  var h = parseFloat(c.style.height) || c.clientHeight;
+  return { w:w, h:h, topY:30, bottomY:h-30 };
+}
+
+function initParticles() { var cm=getCM(); particles=[]; for(var i=0;i<NUM_P;i++) particles.push({x:Math.random()*cm.w}); }
+
+function updateNormalParticles(dt) {
+  var exp=state.experiment;
+  if (exp==='newton') updateNewtonP(dt, params.newton);
+  else if (exp==='poiseuille') updatePoiseuilleP(dt);
+  else if (exp==='stokes') updateStokesP(dt);
+}
+
+function updateNewtonP(dt, p) {
+  var cm=getCM(), scale=cm.w/5, U=p.velocity;
+  for(var i=0;i<NUM_P;i++){var yn=(i+0.5)/NUM_P; particles[i].x+=U*yn*scale*dt; if(particles[i].x>cm.w+10) particles[i].x=-10;}
+}
+function updatePoiseuilleP(dt) {
+  var p=params.poiseuille, R=p.radius, umax=p.dp*R*R/(4*p.viscosity*p.length), cm=getCM();
+  umax = Math.max(umax, 0.01);
+  var scale = Math.min(cm.w / (umax * 2), 300);
+  for(var i=0;i<NUM_P;i++){var yn=(i+0.5)/NUM_P, rFrac=Math.abs(yn-0.5)*2*R, speed=umax*(1-rFrac*rFrac/(R*R)); particles[i].x+=Math.max(0,speed)*scale*dt; if(particles[i].x>cm.w+10) particles[i].x=-10;}
+}
+var stokesFallY=0, stokesFallV=0, stokesTime=0;
+function updateStokesP(dt) {
+  var phy=stokesPhysics(params.stokes);
+  // Euler numerical integration (not analytical formula)
+  var a=(phy.Fg-phy.dragC*stokesFallV)/phy.m;
+  stokesFallV+=a*dt;
+  stokesTime+=dt;
+  var cmSt= getCM(); var pxScale = (cmSt.bottomY - cmSt.topY) / 0.5; // map 0.5m physical to canvas height
+  stokesFallY+=stokesFallV*dt*pxScale; if(stokesFallY>cmSt.bottomY+30){stokesFallY=cmSt.topY-50;stokesTime=0;stokesFallV=0;}
+}
+
+function renderNormalCanvas() {
+  var exp=state.experiment;
+  if (exp==='newton') renderNewtonC(params.newton);
+  else if (exp==='poiseuille') renderPoiseuilleC();
+  else if (exp==='stokes') renderStokesC();
+}
+
+function renderNewtonC(p) {
+  var cm=getCM(), U=p.velocity, w=cm.w, topY=cm.topY, bottomY=cm.bottomY, flowH=bottomY-topY;
+  ctx.clearRect(0,0,w,cm.h);
+  var grad=ctx.createLinearGradient(0,bottomY,0,topY); grad.addColorStop(0,'rgba(0,20,60,0.4)'); grad.addColorStop(0.5,'rgba(0,40,100,0.4)'); grad.addColorStop(1,'rgba(0,80,160,0.4)');
+  ctx.fillStyle=grad; ctx.fillRect(0,topY,w,flowH);
+  ctx.strokeStyle='rgba(255,255,255,0.04)'; ctx.lineWidth=1;
+  for(var i=1;i<8;i++){var gy=topY+flowH*i/8; ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(w,gy); ctx.stroke();}
+  ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(0,bottomY); ctx.lineTo(w,bottomY); ctx.stroke();
+  ctx.fillStyle='#8899bb'; ctx.font='12px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'; ctx.fillText('固定平板 (u=0)',8,bottomY-6);
+  ctx.strokeStyle='#00d4ff'; ctx.lineWidth=3; ctx.shadowColor='rgba(0,212,255,0.6)'; ctx.shadowBlur=8;
+  ctx.beginPath(); ctx.moveTo(0,topY); ctx.lineTo(w,topY); ctx.stroke(); ctx.shadowBlur=0;
+  ctx.fillStyle='#00d4ff'; ctx.fillText('运动平板 (u='+U.toFixed(1)+' m/s) →',8,topY+16);
+  for(var i=0;i<NUM_P;i++){var yn=(i+0.5)/NUM_P, py=bottomY-yn*flowH, g=Math.round(30+yn*180), b=Math.round(80+yn*175), a=0.35+yn*0.55, r=1.2+yn*2.0; ctx.fillStyle='rgba(0,'+g+','+b+','+a+')'; ctx.beginPath(); ctx.arc(particles[i].x,py,r,0,Math.PI*2); ctx.fill();}
+}
+
+function renderPoiseuilleC() {
+  var cm=getCM(), p=params.poiseuille, R=p.radius, w=cm.w, topY=cm.topY, bottomY=cm.bottomY, wt=12;
+  ctx.clearRect(0,0,w,cm.h);
+  ctx.fillStyle='rgba(60,70,100,0.6)'; ctx.fillRect(0,topY,w,wt); ctx.fillRect(0,bottomY-wt,w,wt);
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1; ctx.strokeRect(0,topY,w,wt); ctx.strokeRect(0,bottomY-wt,w,wt);
+  var it=topY+wt, ib=bottomY-wt, grad=ctx.createLinearGradient(0,ib,0,it); grad.addColorStop(0,'rgba(0,20,60,0.3)'); grad.addColorStop(0.5,'rgba(0,60,140,0.4)'); grad.addColorStop(1,'rgba(0,20,60,0.3)');
+  ctx.fillStyle=grad; ctx.fillRect(0,it,w,ib-it);
+  ctx.fillStyle='#8899bb'; ctx.font='11px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'; ctx.fillText('管壁',8,topY+10); ctx.fillText('管壁',8,bottomY-4);
+  ctx.fillStyle='#00d4ff'; ctx.fillText('R='+R.toFixed(3)+' m',w/2-30,topY+22);
+  for(var i=0;i<NUM_P;i++){var yn=(i+0.5)/NUM_P, rFrac=Math.abs(yn-0.5)*2, py=it+(ib-it)*yn, g=Math.round(30+(1-rFrac)*180), b=Math.round(80+(1-rFrac)*175), a=0.35+(1-rFrac)*0.55, r=1.2+(1-rFrac)*2.0; ctx.fillStyle='rgba(0,'+g+','+b+','+a+')'; ctx.beginPath(); ctx.arc(particles[i].x,py,r,0,Math.PI*2); ctx.fill();}
+}
+
+function renderStokesC() {
+  var cm=getCM(), p=params.stokes, phy=stokesPhysics(p), w=cm.w, topY=cm.topY, bottomY=cm.bottomY;
+  ctx.clearRect(0,0,w,cm.h);
+  ctx.fillStyle='rgba(0,30,80,0.3)'; ctx.fillRect(0,topY,w,bottomY-topY);
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,topY); ctx.lineTo(w,topY); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,bottomY); ctx.lineTo(w,bottomY); ctx.stroke();
+  ctx.fillStyle='#8899bb'; ctx.font='11px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'; ctx.fillText('液面',6,topY-6); ctx.fillText('底部',6,bottomY+14);
+  var sx=w/2, sy=stokesFallY, sr=Math.min(12+p.radius*2000,35);
+  if(sy<topY+sr){sy=topY+sr;stokesFallY=sy;}
+  var grad=ctx.createRadialGradient(sx-2,sy-2,sr*0.1,sx,sy,sr); grad.addColorStop(0,'rgba(255,255,255,0.9)'); grad.addColorStop(0.4,'#00d4ff'); grad.addColorStop(1,'rgba(0,100,180,0.8)');
+  ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(sx,sy,sr,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(0,212,255,0.6)'; ctx.lineWidth=2; ctx.stroke();
+  ctx.fillStyle='#00d4ff'; ctx.font='bold 12px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'; ctx.fillText('v='+stokesFallV.toFixed(4)+' m/s',sx-45,sy+sr+18); ctx.fillText('v_t='+phy.vt.toFixed(4)+' m/s',sx-45,sy+sr+34);
+}
+
+// ============================================================
+//  ANIMATION LOOP
+// ============================================================
+var animId=null, lastTime=0;
+function animLoop(ts) {
+  if (!_ready || !state.animationRunning) return;
+  var dt = Math.min((ts-lastTime)/1000, 0.1); lastTime=ts;
+  if (state.mode==='normal') { updateNormalParticles(dt); renderNormalCanvas(); }
+  else { updateCompParticles(dt); renderCompCanvas(); }
+  animId=requestAnimationFrame(animLoop);
+}
+function startAnim() {
+  if (state.animationRunning) return;
+  state.animationRunning=true; lastTime=performance.now();
+  animId=requestAnimationFrame(animLoop); updatePlayBtn();
+}
+function pauseAnim() { state.animationRunning=false; if(animId){cancelAnimationFrame(animId);animId=null;} updatePlayBtn(); }
+function resetAnim() {
+  var was=state.animationRunning; pauseAnim();
+  if (state.mode==='normal') { if(state.experiment==='stokes'){stokesFallY=getCM().topY-50;stokesTime=0;stokesFallV=0;} initParticles(); renderNormalCanvas(); }
+  else { initCompParticles(); renderCompCanvas(); }
+  if (was) startAnim(); updatePlayBtn();
+}
+function updatePlayBtn() {
+  var btn=$('btn-play');
+  if(state.animationRunning){btn.classList.add('playing');btn.innerHTML='&#x25b6; 运行中...';}
+  else{btn.classList.remove('playing');btn.innerHTML='&#x25b6; 开始';}
+}
+$('btn-play').addEventListener('click',startAnim);
+$('btn-pause').addEventListener('click',pauseAnim);
+$('btn-reset').addEventListener('click',resetAnim);
+
+// ============================================================
+//  VIEW SWITCHING
+// ============================================================
+function showPanels(prefix, activeExp) {
+  ['newton','poiseuille','stokes'].forEach(function(e) {
+    var el = document.getElementById(prefix+e);
+    if (!el) return;
+    var active = (e===activeExp);
+    el.classList.toggle('active', active);
+    el.style.display = active ? '' : 'none';
+    if (active && (prefix==='data-'||prefix==='params-')) { el.style.display='flex'; el.style.flexDirection='column'; }
+  });
+}
+
+function initCompParamsForExp(exp) {
+  var defs = _compDefaults[exp] || _compDefaults.newton;
+  ['A','B','C'].forEach(function(k, i) {
+    compParams[k] = {};
+    var src = defs[i] || defs[0];
+    for (var key in src) { if (src.hasOwnProperty(key)) compParams[k][key] = src[key]; }
+  });
+}
+
+function updateModeUI() {
+  $('mode-switch-bar').style.display = ''; // always show mode switch
+
+  if (state.mode==='compare') {
+    $('normal-mode').style.display = 'none';
+    $('compare-mode').style.display = 'flex';
+    // Force comparison mode radio
+    $('radio-compare').checked = true;
+  } else {
+    $('normal-mode').style.display = '';
+    $('compare-mode').style.display = 'none';
+  }
+  // Update radio label styles
+  var radios = document.querySelectorAll('.mode-radio');
+  radios.forEach(function(r) { r.classList.toggle('active-label', r.querySelector('input').checked); });
+}
+
+function switchView() {
+  var menu = state.menuItem;
+  $('principle-view').style.display = (menu==='principle') ? '' : 'none';
+  $('graph-view').style.display = (menu==='graph') ? 'flex' : 'none';
+  $('realistic-view').style.display = (menu==='realistic') ? '' : 'none';
+
+  showPanels('princ-', state.experiment);
+  showPanels('params-', state.experiment);
+  showPanels('data-', state.experiment);
+  showPanels('real-', state.experiment);
+  if (menu==='principle') { setTimeout(drawPrincipleDiagrams, 80); }
+
+  var labels = { newton:'平行平板间流动粒子', poiseuille:'圆管截面流动粒子', stokes:'小球在粘性流体中沉降' };
+  $('canvas-label').innerHTML = '&#x1f3a5; '+(labels[state.experiment]||'');
+
+  updateModeUI();
+
+  if (menu==='graph') {
+    stopRealAnim();
+    if (state.mode==='normal') { updateMainChart(); resizeCanvas(); initParticles(); renderNormalCanvas(); }
+    else {
+      buildCompareUI(); // ensure DOM exists
+      setTimeout(function() {
+        initCompCharts(); resizeCompCanvas(); initCompParticles(); renderCompCanvas();
+      }, 100);
+    }
+    updateDataDisplay();
+  } else if (menu==='realistic') {
+    pauseAnim();
+    stopRealAnim();
+    resizeRealCanvas(state.experiment, function() { startRealAnim(); });
+  } else {
+    pauseAnim();
+    stopRealAnim();
+  }
+}
+
+// ============================================================
+//  MODE SWITCH
+// ============================================================
+document.querySelectorAll('input[name="sim-mode"]').forEach(function(radio) {
+  radio.addEventListener('change', function() {
+    state.mode = this.value;
+    updateModeUI();
+
+    if (state.mode==='compare') {
+      initCompParamsForExp(state.experiment);
+      pauseAnim();
+      disposeCompCharts();
+      destroyCompareUI();
+      buildCompareUI(); // already sets slider values from compParams
+
+      setTimeout(function() {
+        initCompCharts();
+        resizeCompCanvas();
+        initCompParticles();
+        renderCompCanvas();
+        updateCompDataDisplay();
+        startAnim();
+      }, 100);
+    } else {
+      pauseAnim();
+      // Restore normal params from comp A (copy all keys)
+      var src = compParams.A, dst = params[state.experiment];
+      if (src && dst) { for (var k in src) { if (src.hasOwnProperty(k) && dst.hasOwnProperty(k)) dst[k] = src[k]; } }
+
+      disposeCompCharts();
+      destroyCompareUI();
+      updateMainChart();
+      resizeCanvas();
+      initParticles();
+      renderNormalCanvas();
+      updateDataDisplay();
+      startAnim();
+    }
+  });
+});
+
+// ============================================================
+//  SIDEBAR & TABS
+// ============================================================
+document.querySelectorAll('#sidebar-menu li').forEach(function(li) {
+  li.addEventListener('click', function() {
+    document.querySelectorAll('#sidebar-menu li').forEach(function(l){l.classList.remove('active');});
+    li.classList.add('active');
+    state.menuItem = li.dataset.menu;
+    switchView();
+  });
+});
+$('sidebar-toggle').addEventListener('click', function() {
+  $('sidebar').classList.toggle('collapsed');
+  setTimeout(function(){if(state.menuItem==='graph'){updateMainChart(); if(state.mode==='compare'){['A','B','C'].forEach(function(k){if(compCharts[k])compCharts[k].resize();});resizeCompCanvas();initCompParticles();renderCompCanvas();}else{resizeCanvas();renderNormalCanvas();}}},320);
+});
+
+document.querySelectorAll('#experiment-tabs button').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('#experiment-tabs button').forEach(function(b){b.classList.remove('active');});
+    btn.classList.add('active');
+    state.experiment = btn.dataset.exp;
+
+    // If switching experiment while in compare mode, rebuild compare UI for new experiment
+    if (state.mode==='compare') {
+      disposeCompCharts();
+      destroyCompareUI();
+      initCompParamsForExp(state.experiment);
+    }
+
+    if (myChart) { myChart.dispose(); myChart=null; }
+    switchView();
+  });
+});
+
+// ============================================================
+//  PARAMETER HANDLERS — Normal mode
+// ============================================================
+function syncSN(sId, nId, expKey, key) {
+  var slider=$(sId), num=$(nId);
+  if(!slider||!num) return;
+  slider.addEventListener('input',function(){
+    var v=parseFloat(slider.value); num.value=v; params[expKey][key]=v; onParamChange();
+  });
+  num.addEventListener('input',function(){
+    var v=parseFloat(num.value);
+    if(isNaN(v)) return;
+    // Clamp to valid range
+    var mn=parseFloat(slider.min), mx=parseFloat(slider.max);
+    if(v<mn){v=mn;num.value=v;showWarn(num);}
+    if(v>mx){v=mx;num.value=v;showWarn(num);}
+    slider.value=v; params[expKey][key]=v; onParamChange();
+  });
+  num.addEventListener('blur',function(){
+    var v=parseFloat(num.value);
+    var mn=parseFloat(slider.min), mx=parseFloat(slider.max);
+    if(isNaN(v)||v<mn||v>mx){
+      v=(isNaN(v)||v<mn)?mn:mx;
+      num.value=v; slider.value=v; params[expKey][key]=v; onParamChange();
+      showWarn(num);
+    }
+  });
+}
+function showWarn(el) {
+  el.classList.add('warn-flash');
+  setTimeout(function(){ el.classList.remove('warn-flash'); }, 1500);
+}
+syncSN('n-visc','n-visc-num','newton','viscosity'); syncSN('n-vel','n-vel-num','newton','velocity'); syncSN('n-spac','n-spac-num','newton','spacing');
+syncSN('p-radius','p-radius-num','poiseuille','radius'); syncSN('p-length','p-length-num','poiseuille','length'); syncSN('p-dp','p-dp-num','poiseuille','dp'); syncSN('p-visc','p-visc-num','poiseuille','viscosity');
+syncSN('s-radius','s-radius-num','stokes','radius'); syncSN('s-visc','s-visc-num','stokes','viscosity'); syncSN('s-rhop','s-rhop-num','stokes','rhop'); syncSN('s-rhof','s-rhof-num','stokes','rhof');
+
+// ============================================================
+//  PARAMETER HANDLERS — Compare mode
+// ============================================================
+// rAF-throttled chart update to prevent jank during slider drag
+var _chartPending = false;
+function scheduleChartUpdate() {
+  if (!_chartPending) {
+    _chartPending = true;
+    requestAnimationFrame(function() {
+      _chartPending = false;
+      updateMainChart();
+    });
+  }
+}
+function onParamChange() { scheduleChartUpdate(); updateDataDisplay(); }
+
+// Fluid preset database: viscosity (Pa·s) + density (kg/m³) at ~20°C
+var FLUIDS = [
+  {name:'氢气',eta:0.0000088,rho:0.0838},{name:'氦气',eta:0.0000185,rho:0.1785},{name:'空气',eta:0.0000181,rho:1.205},
+  {name:'乙醚',eta:0.000233,rho:714},{name:'苯',eta:0.000604,rho:879},{name:'丙酮',eta:0.000324,rho:791},
+  {name:'甲醇',eta:0.000544,rho:792},{name:'汽油',eta:0.00029,rho:740},{name:'煤油',eta:0.0019,rho:800},
+  {name:'水',eta:0.0010,rho:998},{name:'酒精',eta:0.0012,rho:789},{name:'牛奶',eta:0.0020,rho:1030},
+  {name:'血液',eta:0.0035,rho:1060},{name:'玉米油',eta:0.049,rho:920},{name:'橄榄油',eta:0.081,rho:910},
+  {name:'蓖麻油',eta:0.985,rho:960},{name:'甘油',eta:1.412,rho:1260},{name:'糖浆',eta:2.0,rho:1350}
+];
+
+function applyFluid(idx) {
+  var f = FLUIDS[idx]; if (!f) return;
+  var exp = state.experiment;
+  if (exp === 'newton') {
+    safeVal('n-visc', f.eta); safeVal('n-visc-num', f.eta);
+    params.newton.viscosity = f.eta; onParamChange();
+  } else if (exp === 'poiseuille') {
+    safeVal('p-visc', f.eta); safeVal('p-visc-num', f.eta);
+    params.poiseuille.viscosity = f.eta;
+    params.poiseuille._rho = f.rho;
+    onParamChange();
+  } else if (exp === 'stokes') {
+    safeVal('s-visc', f.eta); safeVal('s-visc-num', f.eta);
+    safeVal('s-rhof', f.rho); safeVal('s-rhof-num', f.rho);
+    params.stokes.viscosity = f.eta; params.stokes.rhof = f.rho;
+    onParamChange();
+  }
+  // Flash feedback on the clicked fluid button in all three grids
+  ['newton','poiseuille','stokes'].forEach(function(e){
+    var grid = document.getElementById('fluid-grid-'+e);
+    if (grid && grid.children[idx]) {
+      var btn = grid.children[idx];
+      btn.style.background = 'rgba(0,212,255,0.3)'; btn.style.color = '#fff';
+      setTimeout(function(){ btn.style.background = ''; btn.style.color = ''; }, 300);
+    }
+  });
+}
+
+// Build fluid button grids
+function buildFluidGrids() {
+  var html = '';
+  FLUIDS.forEach(function(f, i) {
+    html += '<button class="fluid-btn" onclick="applyFluid('+i+')" title="η='+f.eta.toExponential(2)+' Pa·s, ρ='+f.rho+' kg/m³">'+f.name+'</button>';
+  });
+  ['newton','poiseuille','stokes'].forEach(function(e){
+    var grid = document.getElementById('fluid-grid-'+e);
+    if (grid) grid.innerHTML = html;
+  });
+}
+
+// Quick preset helper
+function setParamAndSync(sId, nId, expKey, key, val) {
+  var slider = document.getElementById(sId), num = document.getElementById(nId);
+  if (slider) slider.value = val;
+  if (num) num.value = val;
+  params[expKey][key] = val;
+  onParamChange();
+}
+
+// Reset experiment parameters to defaults
+var _defaultParams = {
+  newton:   { viscosity:1.0, velocity:2.0, spacing:0.05 },
+  poiseuille: { radius:0.01, length:0.1, dp:100, viscosity:0.01 },
+  stokes:   { radius:0.001, viscosity:0.1, rhop:7800, rhof:1000 }
+};
+function resetParams(exp) {
+  var defs = _defaultParams[exp]; if (!defs) return;
+  for (var k in defs) { if (defs.hasOwnProperty(k)) params[exp][k] = defs[k]; }
+  // Sync DOM sliders and numbers
+  var map = {
+    newton:   [['n-visc','n-visc-num','viscosity'],['n-vel','n-vel-num','velocity'],['n-spac','n-spac-num','spacing']],
+    poiseuille:[['p-radius','p-radius-num','radius'],['p-length','p-length-num','length'],['p-dp','p-dp-num','dp'],['p-visc','p-visc-num','viscosity']],
+    stokes:   [['s-radius','s-radius-num','radius'],['s-visc','s-visc-num','viscosity'],['s-rhop','s-rhop-num','rhop'],['s-rhof','s-rhof-num','rhof']]
+  };
+  (map[exp]||[]).forEach(function(t){ safeVal(t[0],defs[t[2]]); safeVal(t[1],defs[t[2]]); });
+  if (state.menuItem==='graph') { updateMainChart(); updateDataDisplay(); }
+  if (state.menuItem==='realistic') { if(exp==='newton')renderRealNewton(); else if(exp==='poiseuille')renderRealPoiseuille(); else if(exp==='stokes')renderRealStokes(); }
+}
+
+// ============================================================
+//  DATA DISPLAY
+// ============================================================
+// Write a data cell (theory + sim + error)
+function writeDataRow(prefix, idx, theoryVal, simVal, unit, fmtFunc) {
+  fmtFunc = fmtFunc || function(v){return v.toFixed(3);};
+  var tId = prefix+idx+'-th', sId = prefix+idx+'-sim', eId = prefix+idx+'-err';
+  var tEl = document.getElementById(tId), sEl = document.getElementById(sId), eEl = document.getElementById(eId);
+  var tStr = fmtFunc(theoryVal)+' '+unit;
+  var sStr = fmtFunc(simVal)+' '+unit;
+  var err = theoryVal !== 0 ? Math.abs((simVal - theoryVal) / theoryVal) * 100 : 0;
+  if (tEl) tEl.textContent = tStr;
+  if (sEl) sEl.textContent = sStr;
+  if (eEl) { eEl.textContent = err.toFixed(3) + '%'; eEl.style.color = err < 0.01 ? 'var(--success)' : 'var(--danger)'; }
+}
+
+function updateDataDisplay() {
+  var exp = state.experiment;
+  if (exp==='newton') {
+    var phy = newtonPhysics(params.newton);
+    writeDataRow('nd-', 'shear', phy.shear, phy.shearSim, 'Pa');
+    writeDataRow('nd-', 'grad', phy.gradient, phy.gradientSim, 's⁻¹');
+    writeDataRow('nd-', 'maxv', phy.umax, phy.umaxSim, 'm/s');
+  } else if (exp==='poiseuille') {
+    var phy = poiseuillePhysics(params.poiseuille);
+    writeDataRow('pd-', 'umax', phy.umax, phy.umaxSim, 'm/s', function(v){return v.toFixed(4);});
+    writeDataRow('pd-', 'flow', phy.Q, phy.QSim, 'm³/s', function(v){return v.toExponential(4);});
+    writeDataRow('pd-', 'uavg', phy.uavg, phy.uavgSim, 'm/s', function(v){return v.toFixed(4);});
+    writeDataRow('pd-', 're', phy.Re, phy.ReSim, '', function(v){return v.toFixed(2);});
+  } else if (exp==='stokes') {
+    var phy = stokesPhysics(params.stokes);
+    writeDataRow('sd-', 'vt', phy.vt, phy.vtSim, 'm/s', function(v){return v.toFixed(5);});
+    writeDataRow('sd-', 'fd', phy.Fd, phy.FdSim, 'N', function(v){return v.toExponential(3);});
+    writeDataRow('sd-', 're', phy.Re, phy.ReSim, '', function(v){return v.toFixed(3);});
+  }
+}
+
+function updateCompDataDisplay() {
+  var exp = state.experiment;
+  ['A','B','C'].forEach(function(k) {
+    var pf = 'comp_' + k.toLowerCase() + '_';
+    if (exp==='newton') {
+      var phy = newtonPhysics(compParams[k]);
+      writeDataRow(pf, 'shear', phy.shear, phy.shearSim, 'Pa');
+      writeDataRow(pf, 'grad', phy.gradient, phy.gradientSim, 's⁻¹');
+      writeDataRow(pf, 'maxv', phy.umax, phy.umaxSim, 'm/s');
+    } else if (exp==='poiseuille') {
+      var phy = poiseuillePhysics(compParams[k]);
+      writeDataRow(pf, 'umax', phy.umax, phy.umaxSim, 'm/s', function(v){return v.toFixed(4);});
+      writeDataRow(pf, 'flow', phy.Q, phy.QSim, 'm³/s', function(v){return v.toExponential(4);});
+      writeDataRow(pf, 'uavg', phy.uavg, phy.uavgSim, 'm/s', function(v){return v.toFixed(4);});
+    } else if (exp==='stokes') {
+      var phy = stokesPhysics(compParams[k]);
+      writeDataRow(pf, 'vt', phy.vt, phy.vtSim, 'm/s', function(v){return v.toFixed(5);});
+      writeDataRow(pf, 'fd', phy.Fd, phy.FdSim, 'N', function(v){return v.toExponential(3);});
+      writeDataRow(pf, 're', phy.Re, phy.ReSim, '', function(v){return v.toFixed(3);});
+    }
+  });
+}
+
+// ============================================================
+//  CSV EXPORT
+// ============================================================
+function getExpName() {
+  var map = { newton:'牛顿粘性定律', poiseuille:'泊肃叶定律', stokes:'斯托克斯定律' };
+  return map[state.experiment] || state.experiment;
+}
+function getParamsForExp() {
+  var exp = state.experiment;
+  if (exp==='newton') return [{name:'动力粘度 η',val:params.newton.viscosity,unit:'Pa·s'},{name:'上板速度 U',val:params.newton.velocity,unit:'m/s'},{name:'板间距 d',val:params.newton.spacing,unit:'m'}];
+  if (exp==='poiseuille') return [{name:'管半径 R',val:params.poiseuille.radius,unit:'m'},{name:'管长 L',val:params.poiseuille.length,unit:'m'},{name:'压强差 ΔP',val:params.poiseuille.dp,unit:'Pa'},{name:'动力粘度 η',val:params.poiseuille.viscosity,unit:'Pa·s'}];
+  if (exp==='stokes') return [{name:'球半径 r',val:params.stokes.radius,unit:'m'},{name:'动力粘度 η',val:params.stokes.viscosity,unit:'Pa·s'},{name:'球密度 ρp',val:params.stokes.rhop,unit:'kg/m³'},{name:'流体密度 ρf',val:params.stokes.rhof,unit:'kg/m³'}];
+  return [];
+}
+function getDataRowsForExp() {
+  var exp = state.experiment;
+  if (exp==='newton') { var p=newtonPhysics(params.newton); return [{name:'剪切应力 τ',theory:p.shear,sim:p.shearSim,unit:'Pa'},{name:'速度梯度 du/dy',theory:p.gradient,sim:p.gradientSim,unit:'s⁻¹'},{name:'最大流速 umax',theory:p.umax,sim:p.umaxSim,unit:'m/s'}]; }
+  if (exp==='poiseuille') { var p=poiseuillePhysics(params.poiseuille); return [{name:'最大流速 umax',theory:p.umax,sim:p.umaxSim,unit:'m/s'},{name:'体积流量 Q',theory:p.Q,sim:p.QSim,unit:'m³/s'},{name:'平均流速 uavg',theory:p.uavg,sim:p.uavgSim,unit:'m/s'}]; }
+  if (exp==='stokes') { var p=stokesPhysics(params.stokes); return [{name:'终端速度 vt',theory:p.vt,sim:p.vtSim,unit:'m/s'},{name:'阻力 Fd (平衡)',theory:p.Fd,sim:p.FdSim,unit:'N'},{name:'雷诺数 Re',theory:p.Re,sim:p.ReSim,unit:''}]; }
+  return [];
+}
+
+function exportCSV() {
+  var exp = getExpName();
+  var params = getParamsForExp();
+  var data = getDataRowsForExp();
+  var rows = ['实验: ' + exp, '', '参数,,', ...params.map(function(p){return p.name+','+p.val+','+p.unit;}), '', '指标,理论值,仿真值,相对误差(%)'];
+  data.forEach(function(d){ var err = d.theory!==0 ? Math.abs((d.sim-d.theory)/d.theory)*100 : 0; rows.push(d.name+','+d.theory+','+d.sim+','+err.toFixed(3)); });
+  var csv = '﻿' + rows.join('\n');
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = exp + '_数据_' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+// ============================================================
+//  HTML EXPERIMENT REPORT  (publication-quality SVG charts)
+// ============================================================
+// Shared pub-style ECharts option factory
+// ========== Professional palettes & markers (Tableau 10 + 5 line types + 8 markers) ==========
+var _T10 = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
+var _dashTypes = ['solid',[8,5],[12,6,3,6],[18,6],[3,3]];
+var _markers = ['circle','rect','diamond','triangle','arrow'];
+
+function clampVal(v){ return isFinite(v)&&v>0 ? Math.min(v,1e6) : 1; }
+
+function pubChartOpt(title, xLabel, yLabel, legendName) {
+  var font = 'Times New Roman, serif';
+  return {
+    renderer: 'canvas', backgroundColor: '#ffffff', animation: false,
+    title: [
+      { text: title, left: 'center', top: 6, textStyle: { color: '#000', fontSize: 14, fontFamily: font, fontWeight: 'bold' } },
+      { text: '', left: 'center', top: 26, textStyle: { color: '#555', fontSize: 10, fontFamily: font } }
+    ],
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(255,255,255,0.96)', borderColor: '#bbb',
+      textStyle: { color: '#333', fontSize: 11, fontFamily: font },
+      formatter: null // set per-experiment
+    },
+    grid: { left: 82, right: 185, top: 62, bottom: 66, borderWidth: 0 },
+    legend: { show: true, type: 'scroll', orient: 'vertical', right: 6, top: 64, bottom: 40,
+      itemWidth: 24, itemHeight: 14, itemGap: 8,
+      backgroundColor: '#fff', borderColor: '#ccc', borderWidth: 1, borderRadius: 4,
+      shadowBlur: 4, shadowColor: 'rgba(0,0,0,0.1)',
+      textStyle: { fontFamily: font, fontSize: 10, color: '#000' },
+      pageTextStyle: { fontFamily: font, fontSize: 9 }
+    },
+    xAxis: {
+      name: xLabel, nameLocation: 'center', nameGap: 34,
+      nameTextStyle: { color: '#000', fontSize: 12, fontFamily: font, fontWeight: 'bold', fontStyle: 'italic' },
+      axisLine: { lineStyle: { color: '#000', width: 1.2 } },
+      axisTick: { inside: true, length: 6, lineStyle: { color: '#000', width: 1 } },
+      axisLabel: { color: '#000', fontSize: 11, fontFamily: font },
+      splitLine: { show: true, lineStyle: { color: '#e0e0e0', width: 0.8 } },
+      minorTick: { show: true, length: 3 },
+      minorSplitLine: { show: true, lineStyle: { color: '#f0f0f0', width: 0.5 } }
+    },
+    yAxis: {
+      name: yLabel, nameLocation: 'center', nameGap: 54,
+      nameTextStyle: { color: '#000', fontSize: 12, fontFamily: font, fontWeight: 'bold', fontStyle: 'italic' },
+      axisLine: { lineStyle: { color: '#000', width: 1.2 } },
+      axisTick: { inside: true, length: 6, lineStyle: { color: '#000', width: 1 } },
+      axisLabel: { color: '#000', fontSize: 11, fontFamily: font },
+      splitLine: { show: true, lineStyle: { color: '#e0e0e0', width: 0.8 } },
+      minorTick: { show: true, length: 3 },
+      minorSplitLine: { show: true, lineStyle: { color: '#f0f0f0', width: 0.5 } }
+    }
+  };
+}
+
+function generateReport() {
+  var exp = getExpName(), ex = state.experiment;
+  var paramList = getParamsForExp();
+  var data = getDataRowsForExp();
+  var now = new Date().toLocaleString('zh-CN');
+
+  var paramRows = paramList.map(function(p){ return '<tr><td>'+p.name+'</td><td>'+p.val+'</td><td>'+p.unit+'</td></tr>'; }).join('');
+  var dataRows = data.map(function(d){
+    var err = d.theory!==0 ? Math.abs((d.sim-d.theory)/d.theory)*100 : 0;
+    return '<tr><td>'+d.name+'</td><td>'+d.theory+' '+d.unit+'</td><td>'+d.sim+' '+d.unit+'</td><td>'+err.toFixed(3)+'%</td></tr>';
+  }).join('');
+
+  var cid = 'report-chart', js = '', compTableRows = '', variedKey = '', subTitle = '';
+  var yRefName = '';
+
+  if (ex==='newton') {
+    variedKey = 'Viscosity \\u03b7 (Pa\\u00b7s)';
+    var U = params.newton.velocity, d = params.newton.spacing;
+    var etaVals = [0.2, 0.5, 1.0, 2.0, 5.0], maxGrad = U/d;
+    subTitle = 'Fixed: U='+U.toFixed(1)+' m/s, d='+d.toFixed(3)+' m';
+    yRefName = '\\u03c4=0';
+
+    js += 'window._reportChart=null;'+
+      'var c=window._reportChart=echarts.init(document.getElementById("'+cid+'"),null,{renderer:"svg"});'+
+      'var opt='+JSON.stringify(pubChartOpt('Shear Stress \\u03c4 vs. Velocity Gradient','du/dy (s⁻¹)','Shear Stress \\u03c4 (Pa)'))+';'+
+      'opt.title[1].text="'+subTitle+'";'+
+      'opt.tooltip.formatter=function(ps){var s="";ps.forEach(function(p){if(!p.seriesName||p.seriesName===" ")return;'+
+        's+=p.marker+" <b>"+p.seriesName+"</b><br/>  du/dy="+p.value[0].toFixed(2)+" s⁻¹, \\u03c4="+p.value[1].toFixed(3)+" Pa<br/>";});return s;};'+
+      'opt.xAxis.min=0;opt.xAxis.max='+maxGrad+';opt.yAxis.min=0;opt.yAxis.max='+clampVal(etaVals[4]*maxGrad*1.06)+';opt.series=[];';
+    compTableRows = '<tr><th>\\u03b7 (Pa\\u00b7s)</th><th>\\u03c4 at du/dy='+maxGrad.toFixed(1)+' (Pa)</th><th>Slope</th><th>\\u03c4 at du/dy=20</th><th>\\u03c4 at du/dy='+maxGrad.toFixed(0)+'</th></tr>';
+
+    etaVals.forEach(function(eta,idx){
+      var c=_T10[idx], dType=_dashTypes[idx], mk=_markers[idx], label='\\u03b7 = '+eta.toFixed(1)+' Pa\\u00b7s';
+      js+='opt.series.push({type:"line",data:(function(e,mg){var pts=[];for(var i=0;i<=80;i++){var x=mg*i/80;pts.push([x,e*x]);}return pts;})('+eta+','+maxGrad+'),'+
+        'smooth:false,lineStyle:{color:"'+c+'",width:2,type:'+JSON.stringify(dType)+'},itemStyle:{color:"'+c+'",borderColor:"#fff",borderWidth:1},symbol:"'+mk+'",symbolSize:5,name:"'+label+'"});'+
+        'opt.series.push({type:"line",data:(function(e,mg){var pts=[];for(var i=0;i<=80;i++){var x=mg*i/80;pts.push([x,e*x*1.03]);}return pts;})('+eta+','+maxGrad+'),'+
+        'lineStyle:{opacity:0},symbol:"none",showSymbol:false,areaStyle:{color:"'+c+'",opacity:0.2}});'+
+        'opt.series.push({type:"line",data:(function(e,mg){var pts=[];for(var i=0;i<=80;i++){var x=mg*i/80;pts.push([x,e*x*0.97]);}return pts;})('+eta+','+maxGrad+'),'+
+        'lineStyle:{opacity:0},symbol:"none",showSymbol:false,areaStyle:{color:"'+c+'",opacity:0.2}});';
+      compTableRows += '<tr><td>'+eta.toFixed(1)+'</td><td>'+(eta*maxGrad).toFixed(2)+'</td><td>'+eta.toFixed(1)+'</td><td>'+(eta*20).toFixed(1)+'</td><td>'+(eta*maxGrad).toFixed(1)+'</td></tr>';
+    });
+    js+='opt.series.push({type:"line",data:[[-1,0],['+(maxGrad+2)+',0]],lineStyle:{color:"#ddd",width:0.8,type:"dashed"},symbol:"none",showSymbol:false});c.setOption(opt);';
+
+  } else if (ex==='poiseuille') {
+    variedKey = 'Radius R (m)';
+    var L = params.poiseuille.length, dp = params.poiseuille.dp, eta = params.poiseuille.viscosity;
+    var Rvals = [0.004, 0.007, 0.01, 0.013, 0.016];
+    subTitle = 'Fixed: L='+L.toFixed(2)+' m, \\u0394P='+dp.toFixed(0)+' Pa, \\u03b7='+eta.toFixed(3)+' Pa\\u00b7s';
+    var umaxVals = Rvals.map(function(R){ return dp*R*R/(4*eta*L); });
+    var xMaxR = Rvals[4]*1.08, yMaxU = umaxVals[4]*1.08;
+
+    js += 'window._reportChart=null;'+
+      'var c=window._reportChart=echarts.init(document.getElementById("'+cid+'"),null,{renderer:"svg"});'+
+      'var opt='+JSON.stringify(pubChartOpt('Velocity Profile u(r)','r (m)','u (m/s)'))+';'+
+      'opt.title[1].text="'+subTitle+'";'+
+      'opt.tooltip.formatter=function(ps){var s="";ps.forEach(function(p){if(!p.seriesName||p.seriesName===" ")return;'+
+        's+=p.marker+" <b>"+p.seriesName+"</b><br/>  r="+p.value[0].toFixed(4)+" m, u="+p.value[1].toFixed(4)+" m/s<br/>";});return s;};'+
+      'opt.xAxis.min='+(-xMaxR)+';opt.xAxis.max='+(xMaxR)+';opt.yAxis.min=0;opt.yAxis.max='+(yMaxU)+';opt.series=[];';
+    compTableRows = '<tr><th>R (m)</th><th>u<sub>max</sub> (m/s)</th><th>Q (m\\u00b3/s)</th><th>u at r=R/2</th></tr>';
+
+    Rvals.forEach(function(R,idx){
+      var umax=umaxVals[idx], c=_T10[idx], dType=_dashTypes[idx], mk=_markers[idx], label='R = '+R.toFixed(3)+' m';
+      var Q = Math.PI*Math.pow(R,4)*dp/(8*eta*L);
+      js+='opt.series.push({type:"line",data:(function(R,umax){var pts=[];for(var i=0;i<=80;i++){var r=-R+2*R*i/80;pts.push([r,umax*(1-r*r/(R*R))]);}return pts;})('+R+','+umax+'),'+
+        'smooth:true,lineStyle:{color:"'+c+'",width:2,type:'+JSON.stringify(dType)+'},itemStyle:{color:"'+c+'",borderColor:"#fff",borderWidth:1},symbol:"'+mk+'",symbolSize:5,name:"'+label+'"});';
+      compTableRows += '<tr><td>'+R.toFixed(3)+'</td><td>'+umax.toFixed(4)+'</td><td>'+Q.toExponential(3)+'</td><td>'+(umax*0.75).toFixed(4)+'</td></tr>';
+    });
+    js+='opt.series.push({type:"line",data:[['+(-xMaxR)+',0],['+(xMaxR)+',0]],lineStyle:{color:"#ddd",width:0.8,type:"dashed"},symbol:"none",showSymbol:false});c.setOption(opt);';
+
+  } else if (ex==='stokes') {
+    variedKey = 'Sphere Radius r (m)';
+    var rhop = params.stokes.rhop, rhof = params.stokes.rhof, etaS = params.stokes.viscosity, g0 = params.stokes.g;
+    var rVals = [0.0004, 0.0007, 0.001, 0.0013, 0.0016];
+    subTitle = 'Fixed: \\u03c1<sub>p</sub>='+rhop+' kg/m\\u00b3, \\u03c1<sub>f</sub>='+rhof+' kg/m\\u00b3, \\u03b7='+etaS.toFixed(3)+' Pa\\u00b7s';
+    var vtVals=[], tauVals=[], tmList=[];
+    rVals.forEach(function(r){ vtVals.push(2*r*r*(rhop-rhof)*g0/(9*etaS)); var t0=2*rhop*r*r/(9*etaS); tauVals.push(t0); tmList.push(t0>0.001?5*t0:0.1); });
+    var gTmax = tmList[4]*1.05, gVtMax = vtVals[4]*1.08;
+
+    js += 'window._reportChart=null;'+
+      'var c=window._reportChart=echarts.init(document.getElementById("'+cid+'"),null,{renderer:"svg"});'+
+      'var opt='+JSON.stringify(pubChartOpt('Velocity v(t)','t (s)','v (m/s)'))+';'+
+      'opt.title[1].text="'+subTitle+'";'+
+      'opt.tooltip.formatter=function(ps){var s="";ps.forEach(function(p){if(!p.seriesName||p.seriesName===" ")return;'+
+        's+=p.marker+" <b>"+p.seriesName+"</b><br/>  t="+p.value[0].toFixed(4)+" s, v="+p.value[1].toFixed(5)+" m/s<br/>";});return s;};'+
+      'opt.xAxis.min=0;opt.xAxis.max='+(gTmax)+';opt.yAxis.min=0;opt.yAxis.max='+(gVtMax)+';opt.series=[];';
+    compTableRows = '<tr><th>r (m)</th><th>v<sub>t</sub> (m/s)</th><th>\\u03c4 (s)</th><th>v at t=\\u03c4</th><th>v at t=3\\u03c4</th></tr>';
+
+    rVals.forEach(function(r,idx){
+      var vt=vtVals[idx], tau=tauVals[idx], tm=tmList[idx], c=_T10[idx], dType=_dashTypes[idx], mk=_markers[idx], label='r = '+r.toFixed(4)+' m';
+      js+='opt.series.push({type:"line",data:(function(vt,tau,tm){var pts=[];for(var i=0;i<=80;i++){var t=tm*i/80;pts.push([t,vt*(1-Math.exp(-t/(tau<1e-6?1e-6:tau)))]);}return pts;})('+vt+','+tau+','+tm+'),'+
+        'smooth:true,lineStyle:{color:"'+c+'",width:2,type:'+JSON.stringify(dType)+'},itemStyle:{color:"'+c+'",borderColor:"#fff",borderWidth:1},symbol:"'+mk+'",symbolSize:5,name:"'+label+'"});';
+      var v1 = vt*(1-Math.exp(-1)), v3 = vt*(1-Math.exp(-3));
+      compTableRows += '<tr><td>'+r.toFixed(4)+'</td><td>'+vt.toFixed(5)+'</td><td>'+tau.toFixed(4)+'</td><td>'+v1.toFixed(5)+'</td><td>'+v3.toFixed(5)+'</td></tr>';
+    });
+    js+='c.setOption(opt);';
+  }
+
+  var reportHTML = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>实验报告 — '+exp+'</title>'+
+    '<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.5.0/echarts.min.js"><\/script>'+
+    '<style>'+
+    '*{margin:0;padding:0;box-sizing:border-box;}'+
+    'body{background:#fff;color:#222;font-family:"Times New Roman","Songti SC",serif;padding:40px 50px;max-width:940px;margin:auto;}'+
+    'h1{font-size:16pt;color:#000;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:4px;}'+
+    '.ts{color:#666;font-size:9pt;margin-bottom:22px;}'+
+    'h2{font-size:12pt;color:#000;margin:24px 0 8px;border-left:4px solid #444;padding-left:10px;}'+
+    '.tbl{width:100%;border-collapse:collapse;margin:10px 0 16px;font-size:9pt;}'+
+    '.tbl th{border-top:1.5px solid #000;border-bottom:1px solid #000;padding:6px 10px;text-align:left;font-size:9pt;background:#fafafa;font-weight:bold;}'+
+    '.tbl td{padding:5px 10px;border-bottom:1px solid #e0e0e0;font-size:9pt;}'+
+    '.tbl tr:last-child td{border-bottom:1.5px solid #000;}'+
+    '.chart-box{width:100%;height:500px;margin:16px 0;border:1px solid #ddd;}'+
+    '@media print{body{padding:20px 30px;}button{display:none;}.chart-box{border:none;page-break-inside:avoid;}}'+
+    'button{padding:5px 14px;border:1px solid #999;border-radius:4px;background:#f5f5f5;color:#333;cursor:pointer;font-size:9pt;font-family:inherit;margin-right:6px;}'+
+    'button:hover{background:#e0e0e0;}'+
+    '.note{font-size:8pt;color:#999;margin:18px 0 4px;line-height:1.5;}'+
+    '</style></head><body>'+
+    '<h1>Viscosity Simulation Report — '+exp+'</h1>'+
+    '<div class="ts">Generated: '+now+' | Comparing 5 values of <b>'+variedKey+'</b> | '+subTitle+'</div>'+
+    '<button onclick="window.print()">Print</button>'+
+    '<button onclick="window.close()">Close</button>'+
+    '<button id="btn-png" onclick="var c=window._reportChart;if(c){var u=c.getDataURL({type:\'png\',pixelRatio:2,backgroundColor:\'#fff\'});var a=document.createElement(\'a\');a.href=u;a.download=\''+ex+'_comparison.png\';a.click();}else{alert(\'Chart loading, please retry.\');}">Save as PNG</button>'+
+    '<h2>1. Parameters</h2>'+
+    '<table class="tbl"><thead><tr><th>Parameter</th><th>Value</th><th>Unit</th></tr></thead><tbody>'+paramRows+'</tbody></table>'+
+    '<h2>2. Theory vs. Simulation</h2>'+
+    '<table class="tbl"><thead><tr><th>Metric</th><th>Theory</th><th>Simulation</th><th>Rel. Error</th></tr></thead><tbody>'+dataRows+'</tbody></table>'+
+    '<h2>3. Multi-Curve Comparison</h2>'+
+    '<p style="font-size:9pt;color:#555;margin-bottom:4px;">'+subTitle+'. 5 curves, distinct colors, dash patterns, and marker shapes.</p>'+
+    '<div id="'+cid+'" class="chart-box"></div>'+
+    '<h2>4. Comparison Data</h2>'+
+    '<table class="tbl"><thead>'+compTableRows+'</thead></table>'+
+    '<p class="note">D3 Category10 palette · 5 dash types + 5 marker shapes · tick inward 6px · major/minor grid · Times New Roman · SVG vector · ICLR/NeurIPS style.</p>'+
+    '<script>var _t=setInterval(function(){if(typeof echarts!=="undefined"){clearInterval(_t);'+js+'}},100);<\/script>'+
+    '</body></html>';
+
+  var w = window.open('', '_blank');
+  if (!w) { alert('报告被浏览器拦截，请允许弹窗后重试。'); return; }
+  var blob = new Blob([reportHTML], {type: 'text/html;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  w.location.href = url;
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+}
+
+// ============================================================
+//  EXCEL EXPORT  (SheetJS — .xlsx with 3 sheets)
+// ============================================================
+function exportExcel() {
+  if (typeof XLSX === 'undefined') { alert('SheetJS 未加载，请使用 CSV 导出。'); return; }
+  var exp = getExpName();
+  var paramList = getParamsForExp();
+  var data = getDataRowsForExp();
+
+  // Sheet 1: 实验参数
+  var s1 = [['参数','数值','单位']];
+  paramList.forEach(function(p){ s1.push([p.name, p.val, p.unit]); });
+
+  // Sheet 2: 数据对比
+  var s2 = [['指标','理论值','仿真值','相对误差(%)']];
+  data.forEach(function(d){
+    var err = d.theory!==0 ? Math.abs((d.sim-d.theory)/d.theory)*100 : 0;
+    s2.push([d.name, d.theory+' '+d.unit, d.sim+' '+d.unit, err.toFixed(3)]);
+  });
+
+  // Sheet 3: 原始参数 (JSON-like details)
+  var s3 = [['实验名称', exp], ['生成时间', new Date().toLocaleString('zh-CN')], ['', ''], ['全局状态', '']];
+  s3.push(['当前模式', state.mode==='compare' ? '对比模式' : '常规模式']);
+  var gp = state.experiment==='newton' ? params.newton : (state.experiment==='poiseuille' ? params.poiseuille : params.stokes);
+  for (var k in gp) { if (gp.hasOwnProperty(k)) s3.push([k, gp[k]]); }
+
+  var wb = XLSX.utils.book_new();
+  var ws1 = XLSX.utils.aoa_to_sheet(s1);
+  var ws2 = XLSX.utils.aoa_to_sheet(s2);
+  var ws3 = XLSX.utils.aoa_to_sheet(s3);
+  // Style headers
+  [ws1,ws2,ws3].forEach(function(ws){
+    var ref = XLSX.utils.decode_range(ws['!ref']||'A1');
+    for (var c=ref.s.c; c<=ref.e.c; c++) {
+      var addr = XLSX.utils.encode_col(c)+'1';
+      if (ws[addr]) { ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'DDDDDD' } } }; }
+    }
+  });
+  XLSX.utils.book_append_sheet(wb, ws1, '实验参数');
+  XLSX.utils.book_append_sheet(wb, ws2, '数据对比');
+  XLSX.utils.book_append_sheet(wb, ws3, '详细信息');
+  XLSX.writeFile(wb, exp+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+
+// Bind export buttons
+$('btn-csv').addEventListener('click', exportCSV);
+$('btn-xlsx').addEventListener('click', exportExcel);
+$('btn-report').addEventListener('click', generateReport);
+// Hide Excel button if SheetJS not loaded (poll in case CDN is slow)
+(function checkXLSX(){
+  if (typeof XLSX === 'undefined') {
+    var xbtn = $('btn-xlsx');
+    if (xbtn) { xbtn.title = 'SheetJS 未加载 (需联网)，请使用 CSV 导出'; xbtn.style.opacity = '0.5'; }
+  }
+})();
+
+// ============================================================
+//  RESIZE
+// ============================================================
+window.addEventListener('resize', function() {
+  if (state.menuItem==='graph') {
+    if (state.mode==='compare') { ['A','B','C'].forEach(function(k){if(compCharts[k])compCharts[k].resize();}); resizeCompCanvas(); initCompParticles(); renderCompCanvas(); }
+    else { if(myChart) myChart.resize(); resizeCanvas(); renderNormalCanvas(); }
+  } else if (state.menuItem==='realistic') {
+    resizeRealCanvas(state.experiment);
+  }
+});
+
+// ============================================================
+//  REALISTIC SIMULATION  (Canvas 2D, pure JS)
+// ============================================================
+var realCanvases = {}, realCtx = {}, realParticles = {}, realAnimId = null, realLastTime = 0;
+
+// Unified canvas resize: wait for layout, set pixel dimensions, handle DPR, then redraw
+var _realSizes = { newton:{w:400,h:400}, poiseuille:{w:400,h:420}, stokes:{w:400,h:400} };
+function resizeRealCanvas(exp, cb) {
+  var c = realCanvases[exp];
+  if (!c) { c = document.getElementById('real-canvas-' + exp); if (!c) return; realCanvases[exp] = c; realCtx[exp] = c.getContext('2d'); }
+  var parent = c.parentElement;
+  if (!parent) return;
+  // Use rAF to ensure browser has completed layout
+  requestAnimationFrame(function() {
+    var pw = parent.clientWidth;
+    if (pw < 50) { requestAnimationFrame(function() { resizeRealCanvas(exp, cb); }); return; }
+    var def = _realSizes[exp] || {w:400,h:400};
+    var w = pw - 40, h = def.h, dpr = window.devicePixelRatio || 1;
+    c.width = w * dpr; c.height = h * dpr;
+    c.style.width = w + 'px'; c.style.height = h + 'px';
+    var ctx = realCtx[exp];
+    if (ctx) { ctx.setTransform(1,0,0,1,0,0); ctx.scale(dpr, dpr); }
+    // Re-init particles for new width
+    if (exp === 'newton') { realParticles.newton = []; for (var i = 0; i < 60; i++) realParticles.newton.push({ x: Math.random() * w }); }
+    else if (exp === 'poiseuille') { realParticles.poiseuille = []; for (var i = 0; i < 160; i++) { var rN = Math.sqrt(Math.random()); realParticles.poiseuille.push({ t: Math.random(), r: rN, a: Math.random() * Math.PI * 2 }); } }
+    else if (exp === 'stokes') { realParticles.stokes = { ballY: 60, ballV: 0, time: 0, trail: [] }; }
+    // Redraw
+    if (exp === 'newton') renderRealNewton();
+    else if (exp === 'poiseuille') renderRealPoiseuille();
+    else if (exp === 'stokes') renderRealStokes();
+    if (cb) cb();
+  });
+}
+
+// Newton realistic: velocity vector field + streamlines
+function initRealNewton() {
+  var c = document.getElementById('real-canvas-newton');
+  if (!c) return;
+  realCanvases.newton = c;
+  realCtx.newton = c.getContext('2d');
+  realParticles.newton = [];
+  for (var i = 0; i < 60; i++) realParticles.newton.push({ x: Math.random() * 800 });
+}
+function updateRealNewton(dt) {
+  var p = params.newton, U = p.velocity;
+  var c = realCanvases.newton; if (!c) return;
+  var w = parseFloat(c.style.width) || c.clientWidth;
+  var scale = w / 6;
+  realParticles.newton.forEach(function(pt, i) {
+    var yn = (i + 0.5) / 60;
+    pt.x -= U * yn * scale * dt; // right-to-left flow
+    if (pt.x < -10) pt.x = w + 10;
+  });
+}
+function renderRealNewton() {
+  var c = realCanvases.newton; if (!c) return;
+  var ctx = realCtx.newton;
+  var w = parseFloat(c.style.width) || c.clientWidth;
+  var h = parseFloat(c.style.height) || c.clientHeight;
+  if (w < 50) return;
+  var p = params.newton, U = p.velocity, d = p.spacing;
+  // 2.5D geometry
+  var margin = 60, perspOff = 15; // perspective offset for 3D illusion
+  var topY = margin, bottomY = h - margin, flowH = bottomY - topY;
+  var plateThick = 14; // plate thickness for 3D effect
+
+  ctx.clearRect(0, 0, w, h);
+
+  // --- Background with subtle grid ---
+  var bgGrad = ctx.createLinearGradient(0, bottomY, 0, topY);
+  bgGrad.addColorStop(0, 'rgba(0,20,50,0.5)'); bgGrad.addColorStop(1, 'rgba(0,60,140,0.5)');
+  ctx.fillStyle = bgGrad; ctx.fillRect(0, topY, w, flowH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1;
+  for (var gy = topY; gy <= bottomY; gy += flowH/10) { ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(w,gy); ctx.stroke(); }
+
+  // --- Bottom plate (2.5D with thickness) ---
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(0, bottomY + 2, w, 8);
+  // Plate body (3D block)
+  var bGrad = ctx.createLinearGradient(0, bottomY - plateThick, 0, bottomY + plateThick);
+  bGrad.addColorStop(0, 'rgba(80,90,110,0.9)'); bGrad.addColorStop(0.4, 'rgba(140,150,170,0.9)');
+  bGrad.addColorStop(0.5, 'rgba(180,190,200,0.9)'); bGrad.addColorStop(1, 'rgba(60,70,90,0.9)');
+  ctx.fillStyle = bGrad;
+  ctx.fillRect(0, bottomY - plateThick, w, plateThick + 4);
+  // Plate top surface (highlight)
+  ctx.strokeStyle = 'rgba(220,230,255,0.7)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, bottomY - plateThick + 1); ctx.lineTo(w, bottomY - plateThick + 1); ctx.stroke();
+  ctx.fillStyle = '#8899bb'; ctx.font = '12px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('固定平板  u = 0', w - 160, bottomY + plateThick + 16);
+
+  // --- Top plate (2.5D with thickness, glowing edge) ---
+  var tGrad = ctx.createLinearGradient(0, topY - plateThick, 0, topY + plateThick);
+  tGrad.addColorStop(0, 'rgba(60,80,120,0.9)'); tGrad.addColorStop(0.3, 'rgba(120,160,220,0.9)');
+  tGrad.addColorStop(0.5, 'rgba(180,210,255,0.9)'); tGrad.addColorStop(1, 'rgba(50,70,110,0.9)');
+  ctx.fillStyle = tGrad;
+  ctx.fillRect(0, topY - 4, w, plateThick + 4);
+  // Glowing top edge
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5; ctx.shadowColor = 'rgba(0,212,255,0.8)'; ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.moveTo(0, topY - 4); ctx.lineTo(w, topY - 4); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 12px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('运动平板  u = ' + U.toFixed(1) + ' m/s  ←', w - 200, topY - plateThick - 4);
+
+  // --- Flow streamlines (warm=fast, cool=slow) ---
+  var nStreams = 18;
+  for (var i = 0; i < nStreams; i++) {
+    var yn = (i + 0.5) / nStreams, sy = bottomY - yn * flowH;
+    var velNorm = yn; // 0=bottom/slow, 1=top/fast
+    // Warm (orange/red) for fast, cool (blue/purple) for slow
+    var sr = Math.round(30 + velNorm * 225), sg = Math.round(60 + velNorm * 140), sb = Math.round(200 - velNorm * 160);
+    ctx.strokeStyle = 'rgba('+sr+','+sg+','+sb+','+(0.25+velNorm*0.5)+')';
+    ctx.lineWidth = 1 + velNorm * 2;
+    ctx.setLineDash([6 + velNorm * 10, 4]);
+    ctx.beginPath(); ctx.moveTo(30, sy); ctx.lineTo(w - 30, sy); ctx.stroke();
+    ctx.setLineDash([]);
+    var vel = U * velNorm;
+    ctx.fillStyle = 'rgba('+sr+','+sg+','+sb+','+(0.5+velNorm*0.5)+')';
+    ctx.font = (9 + velNorm * 3) + 'px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText(vel.toFixed(1), w - 56, sy + 3);
+  }
+
+  // --- Flow particles (warm=fast=top, cool=slow=bottom) ---
+  realParticles.newton.forEach(function(pt, i) {
+    var yn = (i + 0.5) / 60, py = bottomY - yn * flowH;
+    // Red/orange (fast, top) → blue/purple (slow, bottom)
+    var pr = Math.round(40 + yn * 215), pg = Math.round(50 + yn * 150), pb = Math.round(220 - yn * 190);
+    var alpha = 0.3 + yn * 0.55, radius = 1.2 + yn * 2.8;
+    ctx.fillStyle = 'rgba('+pr+','+pg+','+pb+','+alpha+')';
+    ctx.beginPath(); ctx.arc(pt.x, py, radius, 0, Math.PI * 2); ctx.fill();
+  });
+
+  // --- Velocity distribution inset ---
+  var vx = w - 130, vy = topY + 20, vw = 100, vh = flowH - 40;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(vx - 5, vy - 5, vw + 10, vh + 10);
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+  ctx.strokeRect(vx - 5, vy - 5, vw + 10, vh + 10);
+  // Linear profile
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(vx, vy + vh); ctx.lineTo(vx + vw, vy); ctx.stroke();
+  ctx.fillStyle = 'rgba(0,212,255,0.5)'; ctx.beginPath(); ctx.arc(vx + vw, vy, 5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.arc(vx, vy + vh, 5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#8899bb'; ctx.font = '10px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('u(y)', vx + vw/2 - 14, vy - 8);
+  ctx.fillText('0', vx - 14, vy + vh + 4);
+  ctx.fillText('U', vx + vw + 6, vy + 4);
+
+  // --- Title ---
+  ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 13px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('2.5D 平行平板 — 牛顿粘性流动', 16, 24);
+  ctx.fillStyle = '#8899bb'; ctx.font = '11px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('流线颜色/粗细 ∝ 流速    η=' + p.viscosity.toFixed(3) + ' Pa·s', 16, h - 12);
+}
+
+// Poiseuille realistic: enhanced 2.5D perspective pipe
+function initRealPoiseuille() {
+  var c = document.getElementById('real-canvas-poiseuille');
+  if (!c) return;
+  realCanvases.poiseuille = c;
+  realCtx.poiseuille = c.getContext('2d');
+  realParticles.poiseuille = [];
+  // Each particle: t (axial 0-1), r (radial 0-1), a (angle 0-2π for ellipse distribution)
+  for (var i = 0; i < 160; i++) {
+    var rNorm = Math.random(); // 0=center, 1=wall
+    // Use sqrt to get uniform distribution over cross-sectional area (more particles near wall where area is larger)
+    rNorm = Math.sqrt(Math.random());
+    realParticles.poiseuille.push({ t: Math.random(), r: rNorm, a: Math.random() * Math.PI * 2 });
+  }
+}
+function updateRealPoiseuille(dt) {
+  var p = params.poiseuille, umax = p.dp * p.radius * p.radius / (4 * p.viscosity * p.length);
+  var speedScale = 0.25;
+  realParticles.poiseuille.forEach(function(pt) {
+    var speed = umax * (1 - pt.r * pt.r); // parabolic profile
+    pt.t += Math.max(speed, 0.001) * speedScale * dt;
+    if (pt.t > 1.15) { pt.t = -0.15; pt.r = Math.sqrt(Math.random()); pt.a = Math.random() * Math.PI * 2; }
+  });
+}
+function renderRealPoiseuille() {
+  var c = realCanvases.poiseuille; if (!c) return;
+  var ctx = realCtx.poiseuille;
+  var w = parseFloat(c.style.width) || c.clientWidth;
+  var h = parseFloat(c.style.height) || c.clientHeight;
+  if (w < 50) return;
+  var p = params.poiseuille, R = p.radius;
+
+  // --- Geometry ---
+  var cx = w * 0.48, cy = h * 0.50;
+  var pipeLen = w * 0.68;
+  var x1 = cx - pipeLen / 2, x2 = cx + pipeLen / 2; // rear, front
+  var rY = Math.min(h * 0.32, 130); // vertical radius in px
+  var persp = 0.55; // perspective: rear ellipse is narrower
+  var rXr = rY * 0.25 * persp; // rear ellipse x-radius (small)
+  var rXf = rY * 0.35;         // front ellipse x-radius (larger = closer)
+  var rYr = rY * persp;        // rear ellipse y-radius
+  var rYf = rY;                // front ellipse y-radius
+
+  ctx.clearRect(0, 0, w, h);
+
+  // --- Shadow under pipe ---
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + rYf + 12, pipeLen * 0.5, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Pipe body: multi-layer for 3D shading ---
+  // Outer dark shell
+  var bodyGrad = ctx.createLinearGradient(0, cy - rYf, 0, cy + rYf);
+  bodyGrad.addColorStop(0, 'rgba(25,35,65,0.95)');
+  bodyGrad.addColorStop(0.08, 'rgba(60,90,150,0.85)');
+  bodyGrad.addColorStop(0.18, 'rgba(100,150,220,0.55)');
+  bodyGrad.addColorStop(0.35, 'rgba(140,190,240,0.25)');
+  bodyGrad.addColorStop(0.50, 'rgba(160,210,255,0.18)');
+  bodyGrad.addColorStop(0.65, 'rgba(120,170,220,0.30)');
+  bodyGrad.addColorStop(0.82, 'rgba(70,100,160,0.60)');
+  bodyGrad.addColorStop(0.92, 'rgba(35,50,90,0.85)');
+  bodyGrad.addColorStop(1, 'rgba(20,30,55,0.95)');
+  ctx.fillStyle = bodyGrad;
+
+  // Build pipe body path
+  ctx.beginPath();
+  ctx.moveTo(x1, cy - rYf); ctx.lineTo(x2, cy - rYf);
+  ctx.ellipse(x2, cy, rXf, rYf, 0, Math.PI * 1.5, Math.PI * 0.5, false);
+  ctx.lineTo(x1, cy + rYf);
+  ctx.ellipse(x1, cy, rXr, rYr, 0, Math.PI * 0.5, Math.PI * 1.5, false);
+  ctx.closePath();
+  ctx.fill();
+
+  // --- Highlight stripe along top of pipe ---
+  var hlGrad = ctx.createLinearGradient(0, cy - rYf, 0, cy - rYf * 0.6);
+  hlGrad.addColorStop(0, 'rgba(200,230,255,0.5)');
+  hlGrad.addColorStop(1, 'rgba(200,230,255,0)');
+  ctx.fillStyle = hlGrad;
+  ctx.beginPath();
+  ctx.moveTo(x1 + 8, cy - rYf + 2); ctx.lineTo(x2 - 8, cy - rYf + 2);
+  ctx.quadraticCurveTo(x2 - 4, cy - rYf * 0.5, x2, cy - rYf * 0.7);
+  ctx.lineTo(x1, cy - rYf * 0.7);
+  ctx.quadraticCurveTo(x1 + 4, cy - rYf * 0.5, x1 + 8, cy - rYf + 2);
+  ctx.closePath();
+  ctx.fill();
+
+  // --- Pipe rim outline ---
+  ctx.strokeStyle = 'rgba(180,210,255,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x1, cy - rYf); ctx.lineTo(x2, cy - rYf);
+  ctx.lineTo(x2, cy + rYf); ctx.lineTo(x1, cy + rYf);
+  ctx.stroke();
+
+  // --- Rear opening (dark interior) ---
+  ctx.fillStyle = 'rgba(0,10,30,0.85)';
+  ctx.beginPath(); ctx.ellipse(x1, cy, rXr, rYr, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(100,140,200,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(x1, cy, rXr, rYr, 0, 0, Math.PI * 2); ctx.stroke();
+
+  // --- Draw particles (sorted back-to-front for proper occlusion) ---
+  var pts = realParticles.poiseuille;
+  var sorted = pts.slice().sort(function(a, b) { return a.t - b.t; }); // draw rear first
+
+  sorted.forEach(function(pt) {
+    var t = pt.t, rNorm = pt.r, angle = pt.a;
+    if (t < 0 || t > 1) return;
+
+    // Interpolate cross-section from rear to front
+    var localRX = rXr + (rXf - rXr) * t;
+    var localRY = rYr + (rYf - rYr) * t;
+    var px = x1 + t * pipeLen;
+
+    // Position within the elliptical cross-section
+    var dx = Math.cos(angle) * localRX * rNorm;
+    var dy = Math.sin(angle) * localRY * rNorm;
+
+    // Parabolic velocity determines appearance
+    var speed = 1 - rNorm * rNorm;
+
+    // Particle size: larger at center, smaller at wall
+    var radius = 1.0 + speed * 3.5;
+
+    // Color: bright cyan-white at center, dim blue at wall
+    var r = Math.round(60 + speed * 180);
+    var g = Math.round(120 + speed * 135);
+    var b = Math.round(180 + speed * 75);
+    var alpha = 0.25 + speed * 0.65;
+
+    ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+    ctx.beginPath();
+    ctx.arc(px + dx, cy + dy, radius, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // --- Front opening (semi-transparent) ---
+  ctx.fillStyle = 'rgba(0,15,40,0.55)';
+  ctx.beginPath(); ctx.ellipse(x2, cy, rXf, rYf, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(140,190,240,0.65)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(x2, cy, rXf, rYf, 0, 0, Math.PI * 2); ctx.stroke();
+
+  // --- Velocity profile inset (mini chart on the right) ---
+  var vx = w - 130, vy = cy - rYf, vw = 100, vh = rYf * 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(vx - 5, vy - 5, vw + 10, vh + 10);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+  ctx.strokeRect(vx - 5, vy - 5, vw + 10, vh + 10);
+  // Parabola fill
+  ctx.fillStyle = 'rgba(0,212,255,0.15)';
+  ctx.beginPath(); ctx.moveTo(vx, vy + vh);
+  for (var i = 0; i <= 30; i++) {
+    var frac = i / 30, rF = (frac - 0.5) * 2; // -1 to 1
+    var uNorm = 1 - rF * rF;
+    ctx.lineTo(vx + uNorm * vw, vy + frac * vh);
+  }
+  ctx.lineTo(vx, vy + vh); ctx.closePath(); ctx.fill();
+  // Parabola curve
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (var i = 0; i <= 30; i++) {
+    var frac2 = i / 30, rF2 = (frac2 - 0.5) * 2;
+    var uNorm2 = 1 - rF2 * rF2;
+    if (i === 0) ctx.moveTo(vx + uNorm2 * vw, vy + frac2 * vh);
+    else ctx.lineTo(vx + uNorm2 * vw, vy + frac2 * vh);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#8899bb'; ctx.font = '10px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('u(r)', vx + vw/2 - 12, vy - 8);
+
+  // --- Labels ---
+  ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 13px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('2.5D 透视管道 — 泊肃叶流动', 16, 24);
+  ctx.fillStyle = '#8899bb'; ctx.font = '11px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('R=' + R.toFixed(3) + ' m   ΔP=' + p.dp.toFixed(0) + ' Pa', x2 + 8, cy - rYf - 6);
+  ctx.fillText('← 入口', x1 - 42, cy + rYf + 22);
+  ctx.fillText('出口 →', x2 + 6, cy + rYf + 22);
+  ctx.fillText('中心流速最大', cx - 35, cy - rYf - 10);
+  ctx.fillText('管壁 u=0', cx - 30, cy + rYf + 16);
+}
+
+// Stokes realistic: enhanced sphere with streamlines
+function initRealStokes() {
+  var c = document.getElementById('real-canvas-stokes');
+  if (!c) return;
+  realCanvases.stokes = c;
+  realCtx.stokes = c.getContext('2d');
+  realParticles.stokes = { ballY: 60, ballV: 0, time: 0, trail: [] };
+}
+function updateRealStokes(dt) {
+  var ps = realParticles.stokes; if (!ps) return;
+  var phy = stokesPhysics(params.stokes);
+  ps.time += dt;
+  // Euler numerical integration
+  var a = (phy.Fg - phy.dragC * ps.ballV) / phy.m;
+  ps.ballV += a * dt;
+  var cRS = realCanvases.stokes; var rsH = cRS ? (parseFloat(cRS.style.height) || 400) : 400;
+  ps.ballY += ps.ballV * (rsH / 0.4) * dt; // dynamic pixel scale from canvas height
+  var c = realCanvases.stokes;
+  if (!c) return;
+  var h = parseFloat(c.style.height) || c.clientHeight;
+  if (ps.ballY > h - 40) { ps.ballY = 60; ps.time = 0; ps.ballV = 0; ps.trail = []; }
+  ps.trail.push({ x: 200, y: ps.ballY });
+  if (ps.trail.length > 40) ps.trail.shift();
+}
+function renderRealStokes() {
+  var c = realCanvases.stokes; if (!c) return;
+  var ctx = realCtx.stokes;
+  var w = parseFloat(c.style.width) || c.clientWidth;
+  var h = parseFloat(c.style.height) || c.clientHeight;
+  if (w < 50) return;
+  var ps = realParticles.stokes; if (!ps) return;
+  var phy = stokesPhysics(params.stokes);
+  var p = params.stokes, sr = Math.min(12 + p.radius * 2500, 35);
+  var sx = w * 0.55, sy = ps.ballY;
+  var topY = 55, bottomY = h - 45, contW = w * 0.5, contLeft = (w - contW) / 2;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // --- 2.5D Beaker/Container ---
+  // Shadow under container
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(w/2, bottomY + 6, contW/2 + 4, 8, 0, 0, Math.PI*2); ctx.fill();
+
+  // Container body (glass gradient)
+  var glassGrad = ctx.createLinearGradient(0, topY, 0, bottomY);
+  glassGrad.addColorStop(0, 'rgba(40,60,100,0.3)');
+  glassGrad.addColorStop(0.15, 'rgba(80,120,180,0.15)');
+  glassGrad.addColorStop(0.5, 'rgba(60,100,160,0.08)');
+  glassGrad.addColorStop(0.85, 'rgba(80,120,180,0.15)');
+  glassGrad.addColorStop(1, 'rgba(40,60,100,0.3)');
+  ctx.fillStyle = glassGrad;
+  ctx.beginPath();
+  ctx.moveTo(contLeft, topY); ctx.lineTo(contLeft, bottomY);
+  ctx.ellipse(w/2, bottomY, contW/2, 10, 0, 0, Math.PI);
+  ctx.lineTo(w - contLeft, topY);
+  ctx.ellipse(w/2, topY, contW/2, 10, 0, Math.PI, 0);
+  ctx.closePath(); ctx.fill();
+
+  // Container outline
+  ctx.strokeStyle = 'rgba(180,200,240,0.5)'; ctx.lineWidth = 2;
+  // Left wall
+  ctx.beginPath(); ctx.moveTo(contLeft, topY); ctx.lineTo(contLeft, bottomY); ctx.stroke();
+  // Right wall
+  ctx.beginPath(); ctx.moveTo(w - contLeft, topY); ctx.lineTo(w - contLeft, bottomY); ctx.stroke();
+
+  // Graduation marks on left wall
+  for (var gm = 0; gm <= 8; gm++) {
+    var gy = topY + (bottomY - topY) * gm / 8;
+    var markLen = (gm % 2 === 0) ? 18 : 10;
+    ctx.strokeStyle = 'rgba(200,220,255,' + (0.3 + (gm%2===0?0.3:0)) + ')'; ctx.lineWidth = (gm%2===0?1.5:1);
+    ctx.beginPath(); ctx.moveTo(contLeft - 2, gy); ctx.lineTo(contLeft + markLen, gy); ctx.stroke();
+    if (gm % 2 === 0) {
+      ctx.fillStyle = 'rgba(200,220,255,0.6)'; ctx.font = '9px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+      ctx.fillText((8-gm)*10, contLeft - 28, gy + 3);
+    }
+  }
+
+  // Fluid fill (semi-transparent blue)
+  var fluidGrad = ctx.createLinearGradient(0, topY, 0, bottomY);
+  fluidGrad.addColorStop(0, 'rgba(0,40,120,0.25)'); fluidGrad.addColorStop(1, 'rgba(0,20,80,0.35)');
+  ctx.fillStyle = fluidGrad;
+  ctx.beginPath();
+  ctx.moveTo(contLeft + 2, topY + 2); ctx.lineTo(contLeft + 2, bottomY - 2);
+  ctx.ellipse(w/2, bottomY - 2, contW/2 - 2, 8, 0, 0, Math.PI);
+  ctx.lineTo(w - contLeft - 2, topY + 2);
+  ctx.ellipse(w/2, topY + 2, contW/2 - 2, 8, 0, Math.PI, 0);
+  ctx.closePath(); ctx.fill();
+
+  // --- Streamlines behind sphere ---
+  var nLines = 10;
+  for (var i = 0; i < nLines; i++) {
+    var yOff = (i - nLines/2) * (sr * 1.8);
+    var ly = sy + yOff;
+    if (ly < topY + sr || ly > bottomY - sr) continue;
+    var distFromBall = Math.abs(yOff) / (sr * 2);
+    ctx.strokeStyle = 'rgba(180,210,255,' + (0.06 + (1-distFromBall)*0.2) + ')'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(contLeft + 20, ly);
+    if (distFromBall < 1.5) {
+      ctx.bezierCurveTo(sx - sr*1.8, ly, sx + sr*1.8, ly, w - contLeft - 20, ly);
+    } else {
+      ctx.lineTo(w - contLeft - 20, ly);
+    }
+    ctx.stroke();
+  }
+
+  // --- Wake zone ---
+  var wakeAlpha = Math.min(0.04 + ps.ballV / (phy.vt + 0.001) * 0.2, 0.25);
+  var wakeGrad = ctx.createLinearGradient(sx + sr, 0, sx + sr * 6, 0);
+  wakeGrad.addColorStop(0, 'rgba(255,160,60,' + wakeAlpha + ')');
+  wakeGrad.addColorStop(1, 'rgba(255,160,60,0)');
+  ctx.fillStyle = wakeGrad;
+  ctx.beginPath(); ctx.ellipse(sx + sr * 3, sy, sr * 3.5, sr * 1.5, 0, 0, Math.PI*2); ctx.fill();
+
+  // --- Trail dots ---
+  ps.trail.forEach(function(t, idx) {
+    var alpha = idx / Math.max(ps.trail.length,1) * 0.6;
+    ctx.fillStyle = 'rgba(255,200,100,' + alpha + ')';
+    ctx.beginPath(); ctx.arc(t.x, t.y, 2.5, 0, Math.PI*2); ctx.fill();
+  });
+
+  // --- Front container opening (ellipse at top) ---
+  ctx.beginPath(); ctx.ellipse(w/2, topY, contW/2, 10, 0, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(0,15,40,0.4)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(180,210,255,0.6)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(w/2, topY, contW/2, 10, 0, 0, Math.PI*2); ctx.stroke();
+
+  // --- Falling sphere (3D shaded) ---
+  var sGrad = ctx.createRadialGradient(sx - sr*0.25, sy - sr*0.3, sr*0.05, sx, sy, sr);
+  sGrad.addColorStop(0, 'rgba(255,255,255,0.95)');
+  sGrad.addColorStop(0.25, '#40d8ff');
+  sGrad.addColorStop(0.7, 'rgba(0,80,180,0.85)');
+  sGrad.addColorStop(1, 'rgba(0,30,100,0.9)');
+  ctx.fillStyle = sGrad; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,200,255,0.8)'; ctx.lineWidth = 2.5; ctx.stroke();
+
+  // --- Bottom container ellipse ---
+  ctx.beginPath(); ctx.ellipse(w/2, bottomY, contW/2, 10, 0, 0, Math.PI);
+  ctx.fillStyle = 'rgba(0,10,30,0.3)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(180,210,255,0.5)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(w/2, bottomY, contW/2, 10, 0, 0, Math.PI*2); ctx.stroke();
+
+  // --- Labels ---
+  ctx.fillStyle = '#00d4ff'; ctx.font = 'bold 13px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('2.5D 沉降容器 — 斯托克斯流动', 16, 24);
+  ctx.fillStyle = '#8899bb'; ctx.font = '12px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('v = ' + ps.ballV.toFixed(4) + ' m/s', sx - 42, sy + sr + 20);
+  ctx.fillText('v_t = ' + phy.vt.toFixed(4) + ' m/s', sx - 42, sy + sr + 38);
+  ctx.fillStyle = 'rgba(255,160,60,0.7)'; ctx.font = '11px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('尾流', sx + sr * 3.5, sy - sr * 1.8);
+  ctx.fillText('流线绕流 →', sx - sr * 3.5, sy - sr * 2.5);
+  ctx.fillStyle = '#8899bb'; ctx.font = '10px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.fillText('容器壁   r=' + p.radius.toFixed(4) + ' m   η=' + p.viscosity.toFixed(3) + ' Pa·s', contLeft + 10, bottomY + 18);
+}
+
+// Realistic animation loop
+var realRunning = false;
+function realAnimLoop(ts) {
+  if (!realRunning) return;
+  var dt = Math.min((ts - realLastTime) / 1000, 0.1);
+  realLastTime = ts;
+  var exp = state.experiment;
+  if (exp === 'newton') { updateRealNewton(dt); renderRealNewton(); }
+  else if (exp === 'poiseuille') { updateRealPoiseuille(dt); renderRealPoiseuille(); }
+  else if (exp === 'stokes') { updateRealStokes(dt); renderRealStokes(); }
+  realAnimId = requestAnimationFrame(realAnimLoop);
+}
+function startRealAnim() {
+  if (realRunning) return;
+  realRunning = true; realLastTime = performance.now();
+  realAnimId = requestAnimationFrame(realAnimLoop);
+}
+function stopRealAnim() {
+  realRunning = false;
+  if (realAnimId) { cancelAnimationFrame(realAnimId); realAnimId = null; }
+}
+function resetRealAnim() {
+  resizeRealCanvas(state.experiment);
+}
+function initRealAll() {
+  initRealNewton(); initRealPoiseuille(); initRealStokes();
+}
+
+// ============================================================
+//  COPY TABLE TO CLIPBOARD
+// ============================================================
+function copyDataTable(containerId) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  var rows = el.querySelectorAll('tr'), text = '';
+  rows.forEach(function(r) {
+    var cells = r.querySelectorAll('th,td'), row = [];
+    cells.forEach(function(c) { row.push(c.textContent.trim()); });
+    text += row.join('\t') + '\n';
+  });
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() { alert('已复制到剪贴板！可粘贴到 Excel。'); });
+  } else {
+    // Fallback
+    var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    alert('已复制到剪贴板！');
+  }
+}
+
+// ============================================================
+//  PRINCIPLE MINI DIAGRAMS  (small canvases in principle cards)
+// ============================================================
+function drawPrincipleDiagrams() {
+  // Newton mini: plates + velocity arrows
+  var cn = document.getElementById('princ-canvas-newton');
+  if (cn && cn.offsetWidth > 0) {
+    var w = cn.clientWidth, h = 100, dpr = window.devicePixelRatio || 1;
+    cn.width = w * dpr; cn.height = h * dpr; cn.style.width = w + 'px'; cn.style.height = h + 'px';
+    var ctx = cn.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    var margin = 8, ty = margin, by = h - margin, fh = by - ty;
+    // Gradient bg
+    var g = ctx.createLinearGradient(0, by, 0, ty);
+    g.addColorStop(0, 'rgba(0,30,80,0.4)'); g.addColorStop(1, 'rgba(0,80,180,0.4)');
+    ctx.fillStyle = g; ctx.fillRect(0, ty, w, fh);
+    // Plates
+    ctx.fillStyle = 'rgba(60,80,120,0.8)'; ctx.fillRect(0, ty - 4, w, 8);
+    ctx.fillStyle = 'rgba(40,50,70,0.8)'; ctx.fillRect(0, by - 4, w, 8);
+    // Velocity arrows (5 levels)
+    for (var i = 0; i < 5; i++) {
+      var yn = (i + 0.5) / 5, y = by - yn * fh, len = 20 + yn * 60;
+      ctx.strokeStyle = 'rgba(255,' + Math.round(100 + yn * 155) + ',' + Math.round(40 + yn * 60) + ',0.8)';
+      ctx.lineWidth = 1 + yn * 2.5;
+      ctx.beginPath(); ctx.moveTo(w * 0.2, y); ctx.lineTo(w * 0.2 + len, y); ctx.stroke();
+      // Arrowhead
+      ctx.fillStyle = 'rgba(255,' + Math.round(100 + yn * 155) + ',' + Math.round(40 + yn * 60) + ',0.8)';
+      ctx.beginPath(); var ax = w * 0.2 + len; ctx.moveTo(ax, y); ctx.lineTo(ax - 6, y - 3); ctx.lineTo(ax - 6, y + 3); ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#00d4ff'; ctx.font = '9px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText('运动平板 u=U', w - 120, ty + 10);
+    ctx.fillStyle = '#8899bb'; ctx.fillText('固定平板 u=0', w - 110, by - 6);
+  }
+  // Poiseuille mini: pipe cross-section + parabola
+  var cp = document.getElementById('princ-canvas-poiseuille');
+  if (cp && cp.offsetWidth > 0) {
+    var w = cp.clientWidth, h = 100, dpr = window.devicePixelRatio || 1;
+    cp.width = w * dpr; cp.height = h * dpr; cp.style.width = w + 'px'; cp.style.height = h + 'px';
+    var ctx = cp.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    var cx = w / 2, cy = h / 2, rx = 32, ry = 35;
+    // Pipe body
+    ctx.fillStyle = 'rgba(0,30,80,0.3)'; ctx.fillRect(cx - 30, cy - ry, 60, ry * 2);
+    ctx.strokeStyle = 'rgba(180,200,255,0.5)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx - 30, cy - ry); ctx.lineTo(cx + 30, cy - ry); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - 30, cy + ry); ctx.lineTo(cx + 30, cy + ry); ctx.stroke();
+    // Parabola
+    ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var i = 0; i <= 30; i++) { var r = -ry + 2 * ry * i / 30; var u = (1 - r * r / (ry * ry)); var px = cx - 20 + u * 24; if (i === 0) ctx.moveTo(px, cy + r); else ctx.lineTo(px, cy + r); }
+    ctx.stroke();
+    ctx.fillStyle = '#00d4ff'; ctx.font = '9px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText('u(r) — 抛物线分布', cx - 35, cy - ry - 6);
+  }
+  // Stokes mini: sphere + streamlines
+  var cs = document.getElementById('princ-canvas-stokes');
+  if (cs && cs.offsetWidth > 0) {
+    var w = cs.clientWidth, h = 100, dpr = window.devicePixelRatio || 1;
+    cs.width = w * dpr; cs.height = h * dpr; cs.style.width = w + 'px'; cs.style.height = h + 'px';
+    var ctx = cs.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    var sx = w / 2, sy = h / 2, sr = 16;
+    // Streamlines
+    for (var i = -3; i <= 3; i++) {
+      var ly = sy + i * 14; if (ly < 10 || ly > h - 10) continue;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.1 + Math.abs(i) * 0.05) + ')'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(8, ly);
+      var dist = Math.abs(i) / 3;
+      if (dist < 1) { ctx.bezierCurveTo(sx - sr * 1.5, ly, sx + sr * 1.5, ly, w - 8, ly); }
+      else { ctx.lineTo(w - 8, ly); }
+      ctx.stroke();
+    }
+    // Sphere
+    var sg = ctx.createRadialGradient(sx - sr * 0.2, sy - sr * 0.2, sr * 0.05, sx, sy, sr);
+    sg.addColorStop(0, 'rgba(255,255,255,0.9)'); sg.addColorStop(0.4, '#00d4ff'); sg.addColorStop(1, 'rgba(0,80,150,0.8)');
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,212,255,0.7)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#ff9800'; ctx.font = 'bold 9px "Segoe UI","PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillText('▼ F_g', sx - 12, sy + sr + 18);
+    ctx.fillStyle = '#ff5252'; ctx.fillText('↑ F_d', sx - 25, sy - sr - 8);
+  }
+}
+
+// ============================================================
+//  KEYBOARD SHORTCUTS
+// ============================================================
+window.addEventListener('keydown', function(e) {
+  // Ignore when focus is on input/textarea
+  var tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+
+  var key = e.key;
+  if (key === ' ') { // Space: toggle animation
+    e.preventDefault();
+    if (state.animationRunning) { pauseAnim(); stopRealAnim(); }
+    else { if (state.menuItem === 'realistic') startRealAnim(); else startAnim(); }
+  } else if (key === 'r' || key === 'R') { // R: reset params
+    e.preventDefault();
+    resetParams(state.experiment);
+    resetAnim();
+    resetRealAnim();
+  } else if (key === 'c' || key === 'C') { // C: toggle compare mode
+    e.preventDefault();
+    if (state.menuItem === 'graph') {
+      var newMode = (state.mode === 'compare') ? 'normal' : 'compare';
+      var radio = document.querySelector('input[name="sim-mode"][value="' + newMode + '"]');
+      if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change')); }
+    }
+  } else if (key === '1') { // Switch to Newton
+    e.preventDefault();
+    var btn = document.querySelector('#experiment-tabs button[data-exp="newton"]');
+    if (btn && !btn.classList.contains('active')) btn.click();
+  } else if (key === '2') { // Switch to Poiseuille
+    e.preventDefault();
+    var btn = document.querySelector('#experiment-tabs button[data-exp="poiseuille"]');
+    if (btn && !btn.classList.contains('active')) btn.click();
+  } else if (key === '3') { // Switch to Stokes
+    e.preventDefault();
+    var btn = document.querySelector('#experiment-tabs button[data-exp="stokes"]');
+    if (btn && !btn.classList.contains('active')) btn.click();
+  }
+});
+
+// ============================================================
+//  INIT
+// ============================================================
+var _ready = false;
+(function boot() {
+  showPanels('princ-','newton'); showPanels('params-','newton'); showPanels('data-','newton'); showPanels('real-','newton');
+  buildFluidGrids();
+  $('principle-view').style.display='none'; $('realistic-view').style.display='none';
+  $('graph-view').style.display='flex';
+  updateModeUI();
+
+  // Show loading indicator
+  $('chart-container').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div><p style="font-size:1.1rem;color:#8899bb;">⏳ 正在初始化…</p></div></div>';
+
+  // Wait for layout to complete before measuring canvas sizes
+  function doInit() {
+    // Resize normal canvas (graph view is visible now)
+    resizeCanvas();
+    if ((parseFloat(canvas.style.width)||0) < 50) {
+      // Canvas not properly sized yet, retry
+      requestAnimationFrame(doInit);
+      return;
+    }
+
+    // Init particles and render first frame
+    initParticles();
+    renderNormalCanvas();
+    updateDataDisplay();
+
+    // Init ECharts if available
+    if (typeof echarts!=='undefined') {
+      initMainChart();
+    } else {
+      $('chart-container').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div><p style="font-size:1.1rem;color:#8899bb;">⏳ 正在加载 ECharts…</p></div></div>';
+    }
+
+    // Start animation
+    _ready = true;
+    startAnim();
+
+    // Poll for ECharts if not yet loaded
+    if (typeof echarts==='undefined') {
+      var tries=0, poll=setInterval(function(){tries++;if(typeof echarts!=='undefined'){clearInterval(poll);initMainChart();}else if(tries>75){clearInterval(poll);$('chart-container').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div><p style="color:#ff9800;font-size:1.1rem;">⚠ ECharts 加载失败</p></div></div>';console.warn('[Sim]ECharts failed');}},200);
+    }
+  }
+
+  // Double rAF ensures browser has completed layout
+  requestAnimationFrame(function() { requestAnimationFrame(doInit); });
+})();
+</script>
+</body>
+</html>
